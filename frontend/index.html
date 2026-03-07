@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8" />
+  <title>MontesBot 🤖 — Assistente UTAD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --utad-blue: #003a70;
+      --utad-accent: #0066cc;
+      --background: #eef3fb;
+      --background-gradient: radial-gradient(circle at top, #ffffff 0, #eef3fb 40%, #d6e3f8 100%);
+      --text-color: #111111;
+      --bot-bg: #ffffff;
+      --user-bg: #e1efff;
+      --error-bg: #ffe5e5;
+      --border-soft: #dde3f0;
+      --shadow-soft: 0 18px 45px rgba(0, 34, 102, 0.18);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--background-gradient);
+      color: var(--text-color);
+      font-size: 18px;
+      line-height: 1.5;
+    }
+
+    .page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      background-image:
+        linear-gradient(120deg, rgba(0, 58, 112, 0.08) 0, transparent 55%),
+        linear-gradient(-120deg, rgba(0, 102, 204, 0.08) 0, transparent 55%);
+      background-repeat: no-repeat;
+      background-size: cover;
+    }
+
+    .chat-container {
+      width: 100%;
+      max-width: 900px;
+      background-color: #ffffff;
+      border-radius: 16px;
+      box-shadow: var(--shadow-soft);
+      border: 1px solid rgba(0, 58, 112, 0.15);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      backdrop-filter: blur(6px);
+    }
+
+    .chat-header {
+      background: linear-gradient(135deg, var(--utad-blue), var(--utad-accent));
+      color: #ffffff;
+      padding: 18px 22px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .bot-avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background-color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      color: var(--utad-blue);
+      flex-shrink: 0;
+    }
+
+    .header-text h1 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: 0.03em;
+    }
+
+    .header-text p {
+      margin: 4px 0 0;
+      font-size: 16px;
+      opacity: 0.95;
+    }
+
+    .header-subtitle {
+      margin-top: 2px;
+      font-size: 14px;
+      opacity: 0.8;
+    }
+
+    .chat-body {
+      display: flex;
+      flex-direction: column;
+      padding: 18px 18px 12px;
+      gap: 14px;
+      max-height: 70vh;
+      overflow-y: auto;
+      background: linear-gradient(to bottom, #f9fbff 0, #ffffff 18%, #ffffff 100%);
+    }
+
+    .message {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .message.bot .bubble {
+      background-color: var(--bot-bg);
+      border-left: 4px solid var(--utad-blue);
+    }
+
+    .message.user {
+      justify-content: flex-end;
+    }
+
+    .message.user .bubble {
+      background-color: var(--user-bg);
+      border-right: 4px solid var(--utad-accent);
+    }
+
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 12px;
+      max-width: 100%;
+      word-wrap: break-word;
+      font-size: 18px;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.04);
+    }
+
+    .bubble strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .sources {
+      margin-top: 6px;
+      font-size: 14px;
+      color: #444444;
+    }
+
+    .sources a {
+      color: var(--utad-accent);
+      text-decoration: underline;
+    }
+
+    .typing-indicator {
+      font-size: 16px;
+      color: #444444;
+      display: none;
+      padding: 0 16px 8px;
+    }
+
+    .typing-indicator.visible {
+      display: block;
+    }
+
+    .chat-footer {
+      border-top: 1px solid var(--border-soft);
+      padding: 12px 14px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background-color: #f7f9ff;
+    }
+
+    .suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .suggestion-btn {
+      border: 1px solid var(--utad-accent);
+      background-color: #ffffff;
+      color: var(--utad-accent);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 16px;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+      transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+    }
+
+    .suggestion-btn:hover,
+    .suggestion-btn:focus-visible {
+      background-color: var(--utad-accent);
+      color: #ffffff;
+      outline: none;
+      transform: translateY(-1px);
+    }
+
+    .input-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    #user-input {
+      flex: 1;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #c0c9e2;
+      font-size: 18px;
+      background-color: #ffffff;
+    }
+
+    #user-input:focus-visible {
+      outline: 2px solid var(--utad-accent);
+      border-color: var(--utad-accent);
+    }
+
+    #send-btn {
+      background-color: var(--utad-blue);
+      color: #ffffff;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 18px;
+      font-size: 18px;
+      cursor: pointer;
+      min-width: 110px;
+      box-shadow: 0 4px 10px rgba(0, 58, 112, 0.35);
+      transition: background-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+    }
+
+    #send-btn:hover,
+    #send-btn:focus-visible {
+      background-color: var(--utad-accent);
+      outline: none;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 102, 204, 0.45);
+    }
+
+    .error-banner {
+      background-color: var(--error-bg);
+      color: #660000;
+      padding: 8px 12px;
+      margin: 0 12px 8px;
+      border-radius: 8px;
+      font-size: 16px;
+      display: none;
+    }
+
+    .error-banner.visible {
+      display: block;
+    }
+
+    @media (max-width: 600px) {
+      .chat-container {
+        border-radius: 0;
+        max-height: 100vh;
+        box-shadow: none;
+        border-left: none;
+        border-right: none;
+      }
+
+      .chat-body {
+        max-height: calc(100vh - 210px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="chat-container" aria-label="Chat com o assistente MontesBot">
+      <header class="chat-header">
+        <div class="bot-avatar" aria-hidden="true">🤖</div>
+        <div class="header-text">
+          <h1>MontesBot 🤖</h1>
+          <p>Assistente da UTAD para perguntas sobre cursos, serviços e vida académica.</p>
+        </div>
+      </header>
+
+      <div id="error-banner" class="error-banner" role="alert" aria-live="assertive">
+        Ocorreu um problema ao comunicar com o servidor. Por favor verifica a tua ligação e tenta novamente.
+      </div>
+
+      <main id="chat-body" class="chat-body" aria-live="polite">
+        <div class="message bot">
+          <div class="bubble">
+            <strong>MontesBot</strong>
+            Olá! Sou o assistente virtual da UTAD. Podes perguntar-me sobre cursos, calendários, propinas, serviços académicos e muito mais.
+            <br /><br />
+            Se quiseres, podes começar com uma das perguntas sugeridas em baixo.
+          </div>
+        </div>
+      </main>
+
+      <div id="typing-indicator" class="typing-indicator" aria-live="polite">
+        MontesBot está a pensar...
+      </div>
+
+      <footer class="chat-footer">
+        <div class="suggestions" aria-label="Perguntas sugeridas">
+          <button class="suggestion-btn" type="button">
+            Quais são os cursos disponíveis na UTAD?
+          </button>
+          <button class="suggestion-btn" type="button">
+            Quando começa o próximo semestre?
+          </button>
+          <button class="suggestion-btn" type="button">
+            Como contactar os serviços académicos?
+          </button>
+          <button class="suggestion-btn" type="button">
+            Como me candidatar à UTAD?
+          </button>
+        </div>
+        <div class="input-row">
+          <label for="user-input" class="visually-hidden">Escreve a tua pergunta</label>
+          <input
+            id="user-input"
+            type="text"
+            autocomplete="off"
+            placeholder="Escreve aqui a tua pergunta em linguagem simples..."
+          />
+          <button id="send-btn" type="button">Enviar</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <style>
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+  </style>
+
+  <script>
+    (function () {
+      const API_BASE = 'http://localhost:8000';
+
+      const chatBody = document.getElementById('chat-body');
+      const userInput = document.getElementById('user-input');
+      const sendBtn = document.getElementById('send-btn');
+      const typingIndicator = document.getElementById('typing-indicator');
+      const errorBanner = document.getElementById('error-banner');
+
+      function getSessionId() {
+        try {
+          const key = 'montesbot_session_id';
+          let id = window.localStorage.getItem(key);
+          if (!id) {
+            if (window.crypto && window.crypto.randomUUID) {
+              id = window.crypto.randomUUID();
+            } else {
+              id = 'sess-' + Math.random().toString(36).slice(2);
+            }
+            window.localStorage.setItem(key, id);
+          }
+          return id;
+        } catch (e) {
+          return 'sess-' + Math.random().toString(36).slice(2);
+        }
+      }
+
+      const sessionId = getSessionId();
+
+      function scrollToBottom() {
+        chatBody.scrollTop = chatBody.scrollHeight;
+      }
+
+      function showError(message) {
+        errorBanner.textContent = message;
+        errorBanner.classList.add('visible');
+      }
+
+      function clearError() {
+        errorBanner.classList.remove('visible');
+      }
+
+      function addMessage(role, text, sources) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message ' + (role === 'bot' ? 'bot' : 'user');
+
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+
+        const title = document.createElement('strong');
+        title.textContent = role === 'bot' ? 'MontesBot' : 'Tu';
+        bubble.appendChild(title);
+
+        const content = document.createElement('div');
+        content.textContent = text;
+        bubble.appendChild(content);
+
+        if (role === 'bot' && sources && sources.length > 0) {
+          const sourcesDiv = document.createElement('div');
+          sourcesDiv.className = 'sources';
+          sourcesDiv.textContent = 'Fontes: ';
+
+          sources.forEach((s, index) => {
+            if (!s.source_url) return;
+            const link = document.createElement('a');
+            link.href = s.source_url;
+            link.target = '_blank';
+            link.rel = 'noreferrer noopener';
+            link.textContent = s.title || s.source_url;
+            sourcesDiv.appendChild(link);
+            if (index < sources.length - 1) {
+              sourcesDiv.appendChild(document.createTextNode(' | '));
+            }
+          });
+
+          bubble.appendChild(sourcesDiv);
+        }
+
+        messageDiv.appendChild(bubble);
+        chatBody.appendChild(messageDiv);
+        scrollToBottom();
+      }
+
+      async function sendMessage() {
+        const text = userInput.value.trim();
+        if (!text) {
+          showError('A mensagem não pode estar vazia.');
+          return;
+        }
+
+        clearError();
+        userInput.value = '';
+        addMessage('user', text);
+        typingIndicator.classList.add('visible');
+        sendBtn.disabled = true;
+
+        try {
+          const response = await fetch(API_BASE + '/chat', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              session_id: sessionId,
+              message: text
+            })
+          });
+
+          if (!response.ok) {
+            if (response.status === 429) {
+              showError('Estás a enviar mensagens demasiado rápido. Espera uns segundos e tenta de novo.');
+            } else if (response.status >= 500) {
+              showError('O servidor está com dificuldade em responder. Tenta novamente dentro de alguns instantes.');
+            } else {
+              showError('Não foi possível processar a tua mensagem. Verifica o texto e tenta novamente.');
+            }
+            return;
+          }
+
+          const data = await response.json();
+          addMessage('bot', data.response, data.sources);
+        } catch (err) {
+          console.error(err);
+          showError('Não foi possível ligar ao servidor. Verifica a tua ligação à Internet.');
+        } finally {
+          typingIndicator.classList.remove('visible');
+          sendBtn.disabled = false;
+          userInput.focus();
+        }
+      }
+
+      sendBtn.addEventListener('click', sendMessage);
+
+      userInput.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          sendMessage();
+        }
+      });
+
+      document.querySelectorAll('.suggestion-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          userInput.value = btn.textContent.trim();
+          sendMessage();
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
+
