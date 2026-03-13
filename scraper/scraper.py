@@ -31,6 +31,7 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 RAW_OUTPUT_FILE = DATA_DIR / "raw_documents.jsonl"
+INDEX_METADATA_FILE = DATA_DIR / "index_metadata.json"
 
 SCRAPE_TIMEOUT_SECONDS = 15
 REQUEST_DELAY_SECONDS_MIN = 1.0
@@ -358,6 +359,36 @@ def _append_documents_to_jsonl(documents: List[ScrapedDocument], output_file: Pa
         LOGGER.error("Failed to write scraped documents to %s: %s", output_file, exc)
 
 
+def _write_index_metadata(scraped: int, indexed: int) -> None:
+    """Persist a tiny JSON with last scrape metadata for observability."""
+    try:
+        payload = {
+            "last_scrape_date": datetime.now(timezone.utc).isoformat(),
+            "scraped": int(scraped),
+            "indexed": int(indexed),
+        }
+        with INDEX_METADATA_FILE.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        LOGGER.info("Updated index metadata file at %s", INDEX_METADATA_FILE)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.error("Failed to write index metadata: %s", exc)
+
+
+def get_last_scrape_date() -> Optional[str]:
+    """
+    Return ISO timestamp string of the last successful scrape+index run, if known.
+    """
+    try:
+        if not INDEX_METADATA_FILE.is_file():
+            return None
+        with INDEX_METADATA_FILE.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("last_scrape_date")
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.error("Failed to read index metadata: %s", exc)
+        return None
+
+
 def run_scraper_and_index() -> Dict[str, int]:
     """
     Run the scraper, persist raw documents, and index them in ChromaDB.
@@ -375,6 +406,7 @@ def run_scraper_and_index() -> Dict[str, int]:
 
         indexed_count = index_documents(documents)
         LOGGER.info("Scrape and index run complete: scraped=%s indexed=%s", len(documents), indexed_count)
+        _write_index_metadata(scraped=len(documents), indexed=indexed_count)
         return {"scraped": len(documents), "indexed": indexed_count}
     except Exception as exc:  # noqa: BLE001
         LOGGER.error("Scrape and index process failed: %s", exc)

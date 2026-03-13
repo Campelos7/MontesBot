@@ -138,6 +138,11 @@
       box-shadow: 0 3px 10px rgba(0, 0, 0, 0.04);
     }
 
+    .bubble .content {
+      white-space: pre-wrap;
+      line-height: 1.55;
+    }
+
     .bubble strong {
       display: block;
       margin-bottom: 4px;
@@ -399,29 +404,12 @@
         bubble.appendChild(title);
 
         const content = document.createElement('div');
+        content.className = 'content';
         content.textContent = text;
         bubble.appendChild(content);
 
-        if (role === 'bot' && sources && sources.length > 0) {
-          const sourcesDiv = document.createElement('div');
-          sourcesDiv.className = 'sources';
-          sourcesDiv.textContent = 'Fontes: ';
-
-          sources.forEach((s, index) => {
-            if (!s.source_url) return;
-            const link = document.createElement('a');
-            link.href = s.source_url;
-            link.target = '_blank';
-            link.rel = 'noreferrer noopener';
-            link.textContent = s.title || s.source_url;
-            sourcesDiv.appendChild(link);
-            if (index < sources.length - 1) {
-              sourcesDiv.appendChild(document.createTextNode(' | '));
-            }
-          });
-
-          bubble.appendChild(sourcesDiv);
-        }
+        // Fontes (URLs) são úteis para debug, mas não mostramos ao utilizador final
+        // para manter a interface mais limpa.
 
         messageDiv.appendChild(bubble);
         chatBody.appendChild(messageDiv);

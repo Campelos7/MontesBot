@@ -4,6 +4,9 @@
 http://127.0.0.1:8000
 
 fechar tudo taskkill /F /IM python.exe
+
+
+
 ## MontesBot — UTAD RAG Chatbot
 
 MontesBot is a Retrieval-Augmented Generation (RAG) chatbot that collects and indexes public information from the University of Trás-os-Montes e Alto Douro website (`utad.pt`) and exposes it through a simple web-based chat interface.
@@ -33,7 +36,7 @@ The assistant is designed for accessibility and clarity, especially for seniors 
                  |   Indexer          |
                  | (LangChain,        |
                  |  ChromaDB,         |
-                 |  OpenAI embeddings)|
+                 |  Groq embeddings)  |
                  +---------+----------+
                            |
                  Vector embeddings

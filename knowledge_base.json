@@ -1,0 +1,210 @@
+{
+  "sobre_utad": {
+    "nome_completo": "Universidade de Trás-os-Montes e Alto Douro",
+    "sigla": "UTAD",
+    "localizacao": "Quinta de Prados, 5000-801 Vila Real, Portugal",
+    "tipo": "Universidade pública portuguesa",
+    "fundacao": "1979",
+    "website": "https://www.utad.pt",
+    "portal_academico": "https://campus.utad.pt"
+  },
+
+  "calendario_2025_2026": {
+    "ano_letivo": "2025/2026",
+    "semanas_trabalho": "38 (18 + 18 + 2)",
+    "semanas_aulas_efetivas": "30 (15 + 15)",
+    "1_semestre": {
+      "semana_integracao": "15 a 19 de setembro de 2025",
+      "inicio_aulas": "22 de setembro de 2025",
+      "interrupcao_natal_inicio": "22 de dezembro de 2025",
+      "interrupcao_natal_fim": "2 de janeiro de 2026",
+      "fim_aulas": "30 de janeiro de 2026",
+      "epoca_normal_exames": "Janeiro e fevereiro de 2026",
+      "epoca_recurso": "Fevereiro de 2026"
+    },
+    "2_semestre": {
+      "inicio_aulas": "18 de fevereiro de 2026",
+      "interrupcao_pascoa": "Abril de 2026 (Páscoa: 5 de abril de 2026)",
+      "fim_aulas": "5 de junho de 2026",
+      "epoca_normal_exames": "Junho de 2026",
+      "epoca_recurso": "Julho de 2026",
+      "epoca_especial": "Agosto de 2026"
+    },
+    "prazos_importantes": {
+      "entrega_dissertacoes_teses": "3 de agosto de 2026",
+      "entrega_projetos_planos_dissertacoes": "6 de novembro de 2026",
+      "entrega_projetos_planos_teses": "13 de novembro de 2026"
+    },
+    "fonte": "Calendário Escolar UTAD 2025/2026 Oficial"
+  },
+
+  "cursos": {
+    "licenciaturas": [
+      "Agronomia",
+      "Animação Sociocultural",
+      "Bioengenharia",
+      "Biologia",
+      "Biologia e Geologia",
+      "Bioquímica",
+      "Ciência Animal",
+      "Ciências Biomédicas",
+      "Ciências da Comunicação",
+      "Ciências da Nutrição (4 anos)",
+      "Ciências do Ambiente",
+      "Ciências do Desporto",
+      "Ciências e Tecnologias Florestais",
+      "Comunicação e Multimédia",
+      "Cultura e Transformação Digital",
+      "Design Sustentável",
+      "Economia",
+      "Educação Básica",
+      "Enfermagem",
+      "Engenharia Biomédica",
+      "Engenharia Civil",
+      "Engenharia e Gestão Industrial",
+      "Engenharia Eletrotécnica e de Computadores",
+      "Engenharia Física",
+      "Engenharia Informática",
+      "Engenharia Mecânica",
+      "Enologia",
+      "Genética e Biotecnologia",
+      "Gestão",
+      "Línguas e Relações Empresariais",
+      "Línguas, Literaturas e Culturas",
+      "Matemática Aplicada e Ciência de Dados",
+      "Psicologia",
+      "Serviço Social",
+      "Teatro e Artes Performativas",
+      "Turismo"
+    ],
+    "licenciaturas_sem_vagas_2025_2026": [
+      "Engenharia Agronómica",
+      "Engenharia Zootécnica",
+      "Cidades Sustentáveis e Inteligentes",
+      "Reabilitação Psicomotora"
+    ],
+    "novos_cursos_2026_2027": [
+      "Medicina",
+      "Psicomotricidade",
+      "Tecnologia dos Espaços Verdes"
+    ],
+    "mestrados_e_doutoramentos": "Para lista completa de mestrados e doutoramentos consulta https://www.utad.pt/estudar/inicio/cursos/",
+    "fonte": "https://www.utad.pt/estudar/inicio/cursos/?grauid=L1"
+  },
+
+  "contactos": {
+    "geral": {
+      "telefone": "(+351) 259 350 000",
+      "morada": "Quinta de Prados, 5000-801 Vila Real",
+      "website": "www.utad.pt"
+    },
+    "servicos_academicos": {
+      "telefone": "(+351) 259 350 049",
+      "extensao": "4049",
+      "email": "sautad@utad.pt",
+      "descricao": "Para matrículas, certidões, equivalências e assuntos académicos gerais"
+    },
+    "servicos_acao_social": {
+      "telefone": "(+351) 259 309 920",
+      "extensao": "7300",
+      "email": "sasutad@utad.pt",
+      "descricao": "Para bolsas de estudo, residências e apoio social"
+    },
+    "biblioteca": {
+      "telefone": "(+351) 259 350 229",
+      "extensao": "4229",
+      "email": "sdb@utad.pt"
+    },
+    "apoio_tecnico_informatica": {
+      "telefone": "(+351) 259 350 015",
+      "extensao": "4015",
+      "email": "apoio.tecnico@utad.pt"
+    },
+    "hospital_veterinario": {
+      "telefone": "(+351) 259 350 601",
+      "email": "hvutad@utad.pt"
+    },
+    "associacao_academica": {
+      "telefone": "963 265 943",
+      "email": "geral@aautad.pt"
+    },
+    "relacoes_internacionais": {
+      "telefone": "(+351) 259 350 294",
+      "extensao": "4294"
+    },
+    "escolas": {
+      "ECAV": {
+        "nome": "Escola de Ciências Agrárias e Veterinárias",
+        "telefone": "(+351) 259 350 473",
+        "email": "sececav@utad.pt"
+      },
+      "ECHS": {
+        "nome": "Escola de Ciências Humanas e Sociais",
+        "telefone": "(+351) 259 350 524",
+        "email": "sechs@utad.pt"
+      },
+      "ECT": {
+        "nome": "Escola de Ciências e Tecnologia",
+        "telefone": "(+351) 259 350 762",
+        "email": "secretaria-ect@utad.pt"
+      },
+      "ECVA": {
+        "nome": "Escola de Ciências da Vida e do Ambiente",
+        "telefone": "(+351) 259 350 890",
+        "email": "eapecva@utad.pt"
+      },
+      "ESS": {
+        "nome": "Escola Superior de Saúde",
+        "telefone": "(+351) 259 350 967",
+        "email": "sec.ess@utad.pt"
+      }
+    },
+    "fonte": "https://www.utad.pt/contactos/"
+  },
+
+  "candidaturas": {
+    "portal_nacional": "concursos.dges.pt",
+    "descricao": "As candidaturas ao ensino superior em Portugal são feitas pelo portal nacional da DGES",
+    "tipos_candidatura": [
+      "Concurso Nacional de Acesso (CNA) — para recém-acabados do secundário",
+      "Maiores de 23 anos",
+      "Titulares de curso superior",
+      "Transferências e mudanças de curso",
+      "Estudantes internacionais"
+    ],
+    "documentos_gerais": [
+      "Documento de identificação (BI ou Cartão de Cidadão)",
+      "Certificado de habilitações",
+      "Comprovativo de candidatura"
+    ],
+    "fonte": "https://www.utad.pt/candidatos/"
+  },
+
+  "propinas": {
+    "nota": "Os valores das propinas são definidos anualmente. Consulta os valores atualizados em utad.pt ou contacta os Serviços Académicos pelo 259 350 049",
+    "isencoes": "Podem existir isenções para estudantes bolseiros. Informa-te nos Serviços de Ação Social: 259 309 920",
+    "fonte": "https://www.utad.pt/estudantes/"
+  },
+
+  "servicos_campus": {
+    "residencias": {
+      "descricao": "A UTAD dispõe de residências universitárias no campus",
+      "contacto": "Serviços de Ação Social: 259 309 920 | sasutad@utad.pt"
+    },
+    "cantina_e_bar": {
+      "descricao": "Serviços de alimentação disponíveis no campus da UTAD em Vila Real"
+    },
+    "biblioteca": {
+      "descricao": "Biblioteca universitária com acesso a recursos físicos e digitais",
+      "contacto": "259 350 229 | sdb@utad.pt"
+    },
+    "desporto": {
+      "descricao": "A UTAD tem instalações desportivas e atividades desportivas para estudantes",
+      "website": "https://www.utad.pt/viver/desporto/"
+    },
+    "saude_mental": {
+      "descricao": "Serviço de apoio à saúde mental disponível para estudantes",
+      "website": "https://www.utad.pt/sm/"
+    }
+  }
+}

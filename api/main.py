@@ -1,9 +1,11 @@
 import logging
 import os
 import time
+import asyncio
 from collections import deque
 from pathlib import Path
 from typing import Deque, Dict, List
+from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import (
@@ -17,8 +19,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from bot.rag import get_answer
-from database.indexer import get_document_count
-from scraper.scraper import run_scraper_and_index, start_scheduler
+from database.indexer import get_document_count, get_vector_store
+from scraper.scraper import get_last_scrape_date, run_scraper_and_index, start_scheduler
 
 
 LOGGER = logging.getLogger(__name__)
@@ -28,7 +30,10 @@ logging.basicConfig(level=logging.INFO)
 class ChatRequest(BaseModel):
     """Request body for the /chat endpoint."""
 
-    session_id: str = Field(..., description="Unique session identifier for the user.")
+    session_id: str | None = Field(
+        default=None,
+        description="Unique session identifier for the user. If omitted, the server generates one.",
+    )
     message: str = Field(..., description="User message in natural language.")
 
 
@@ -37,6 +42,7 @@ class ChatResponse(BaseModel):
 
     response: str
     sources: List[Dict[str, str]]
+    session_id: str
 
 
 class HealthResponse(BaseModel):
@@ -50,6 +56,13 @@ class StatsResponse(BaseModel):
     """Statistics about the indexed knowledge base."""
 
     documents_indexed: int
+
+
+class IndexStatusResponse(BaseModel):
+    """Status information about the vector index and scraping."""
+
+    documents_indexed: int
+    last_scrape_date: str | None
 
 
 class ScrapeResponse(BaseModel):
@@ -122,6 +135,40 @@ def get_app() -> FastAPI:
         except Exception as exc:  # noqa: BLE001
             LOGGER.error("Failed to start APScheduler on startup: %s", exc)
 
+        # Warm up vector store + embeddings in the background so the first chat
+        # request is much faster (avoids first-load embedding initialization).
+        async def _warm_vector_store() -> None:
+            try:
+                await asyncio.to_thread(get_vector_store)
+                LOGGER.info("Vector store warm-up completed")
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning("Vector store warm-up failed: %s", exc)
+
+        async def _ensure_index_populated() -> None:
+            """
+            On cold start, make sure the Chroma index has documents.
+
+            If it is empty, trigger a full scrape + index run once.
+            """
+            try:
+                count = await asyncio.to_thread(get_document_count)
+                if count > 0:
+                    LOGGER.info("Chroma index already has %s documents; skipping initial scrape", count)
+                    return
+
+                LOGGER.info("Chroma index appears empty; starting initial scrape and index run")
+                summary = await asyncio.to_thread(run_scraper_and_index)
+                LOGGER.info(
+                    "Initial scrape and index completed on startup: scraped=%s indexed=%s",
+                    summary.get("scraped", 0),
+                    summary.get("indexed", 0),
+                )
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.error("Failed to ensure initial index population on startup: %s", exc)
+
+        asyncio.create_task(_warm_vector_store())
+        asyncio.create_task(_ensure_index_populated())
+
     @app.get("/", response_class=FileResponse)
     async def root() -> FileResponse:
         """
@@ -150,7 +197,8 @@ def get_app() -> FastAPI:
         Applies per-session rate limiting and returns the bot's answer
         along with a list of source documents used.
         """
-        _check_rate_limit(payload.session_id)
+        session_id = payload.session_id or str(uuid4())
+        _check_rate_limit(session_id)
 
         if not payload.message.strip():
             raise HTTPException(
@@ -159,8 +207,8 @@ def get_app() -> FastAPI:
             )
 
         try:
-            answer, sources = get_answer(payload.session_id, payload.message)
-            return ChatResponse(response=answer, sources=sources)
+            answer, sources = get_answer(session_id, payload.message)
+            return ChatResponse(response=answer, sources=sources, session_id=session_id)
         except HTTPException:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -199,6 +247,25 @@ def get_app() -> FastAPI:
             ) from exc
 
         return StatsResponse(documents_indexed=doc_count)
+
+    @app.get("/index-status", response_model=IndexStatusResponse)
+    async def index_status_endpoint() -> IndexStatusResponse:
+        """
+        Return index statistics and last scrape date for monitoring.
+        """
+        try:
+            doc_count = get_document_count()
+            last_scrape = get_last_scrape_date()
+            return IndexStatusResponse(
+                documents_indexed=doc_count,
+                last_scrape_date=last_scrape,
+            )
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.error("Error retrieving index status: %s", exc)
+            raise HTTPException(
+                status_code=500,
+                detail="Não foi possível obter o estado do índice neste momento.",
+            ) from exc
 
     @app.post("/scrape", response_model=ScrapeResponse)
     async def scrape_endpoint(

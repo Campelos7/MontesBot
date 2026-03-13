@@ -1,17 +1,20 @@
 import logging
 import os
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Optional
 
 from chromadb.errors import ChromaError
 from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import TokenTextSplitter
 from langchain_core.documents import Document
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_COLLECTION_NAME = "montesbot_documents"
+
+_EMBEDDINGS: Optional[HuggingFaceEmbeddings] = None
+_VECTOR_STORE: Optional[Chroma] = None
 
 
 def _get_chroma_db_path() -> str:
@@ -19,23 +22,21 @@ def _get_chroma_db_path() -> str:
     return os.getenv("CHROMA_DB_PATH", "./chroma_db")
 
 
-def _build_embeddings() -> OpenAIEmbeddings:
+def _build_embeddings():
     """
     Build the embedding model used for all document indexing and search.
-
-    This implementation uses OpenAI embeddings and requires the OPENAI_API_KEY
-    environment variable. If the key is missing, a clear exception is raised.
+    Uses HuggingFace embeddings so we don't depend on OpenAI or Gemini.
     """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        message = (
-            "OPENAI_API_KEY is not set. It is required for document embeddings "
-            "used by MontesBot. Please configure it in your .env file."
-        )
-        LOGGER.error(message)
-        raise RuntimeError(message)
+    global _EMBEDDINGS
+    if _EMBEDDINGS is not None:
+        return _EMBEDDINGS
 
-    return OpenAIEmbeddings()
+    model_name = os.getenv(
+        "EMBEDDINGS_MODEL_NAME",
+        "sentence-transformers/all-MiniLM-L6-v2",
+    )
+    _EMBEDDINGS = HuggingFaceEmbeddings(model_name=model_name)
+    return _EMBEDDINGS
 
 
 def _build_text_splitter() -> TokenTextSplitter:
@@ -45,17 +46,21 @@ def _build_text_splitter() -> TokenTextSplitter:
 
 def _get_vector_store() -> Chroma:
     """Instantiate or connect to the Chroma vector store."""
+    global _VECTOR_STORE
+    if _VECTOR_STORE is not None:
+        return _VECTOR_STORE
+
     persist_directory = _get_chroma_db_path()
     os.makedirs(persist_directory, exist_ok=True)
 
     try:
         embeddings = _build_embeddings()
-        vector_store = Chroma(
+        _VECTOR_STORE = Chroma(
             collection_name=DEFAULT_COLLECTION_NAME,
             embedding_function=embeddings,
             persist_directory=persist_directory,
         )
-        return vector_store
+        return _VECTOR_STORE
     except Exception as exc:  # noqa: BLE001
         LOGGER.error("Failed to initialize Chroma vector store: %s", exc)
         raise
@@ -140,6 +145,16 @@ def index_documents(scraped_documents: Iterable[object]) -> int:
     except Exception as exc:  # noqa: BLE001
         LOGGER.error("Indexing operation failed: %s", exc)
         return 0
+
+
+def get_vector_store() -> Chroma:
+    """
+    Public helper to obtain the shared Chroma vector store instance.
+
+    This is used by both the indexer and the RAG bot to ensure that the same
+    embedding configuration is always applied.
+    """
+    return _get_vector_store()
 
 
 def search(query: str, n_results: int = 5) -> List[Document]:

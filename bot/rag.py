@@ -1,112 +1,292 @@
+import json
 import logging
 import os
-from typing import Dict, List, Tuple
+import re
+import unicodedata
+from pathlib import Path
+from typing import Dict, List, Tuple, Optional
 
-import requests
-from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from langchain_chroma import Chroma
-from langchain_core.documents import Document
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_anthropic import ChatAnthropic
-
-from database.indexer import _get_chroma_db_path, DEFAULT_COLLECTION_NAME
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.language_models import BaseChatModel
 
 
 LOGGER = logging.getLogger(__name__)
 
 
-SYSTEM_PROMPT_PT = """
-És o MontesBot, um assistente virtual da Universidade de Trás-os-Montes e Alto Douro (UTAD).
+SYSTEM_PROMPT = """
+És o MontesBot, assistente virtual oficial da Universidade de Trás-os-Montes e Alto Douro (UTAD).
 
-Regras obrigatórias:
-- Responde sempre em Português europeu.
-- Usa frases curtas e claras; evita parágrafos longos e densos.
-- Evita jargão académico; quando tiveres de o usar, explica-o em linguagem simples.
-- Se a resposta for longa, organiza-a em passos numerados.
-- Nunca digas apenas «não sei»; sugere sempre alternativas ou remete para secções relevantes de https://www.utad.pt.
-- Tolera erros ortográficos e perguntas pouco claras, tentando perceber a intenção do utilizador.
-- Mantém um tom amigável, calmo e paciente.
-- No fim de cada resposta, pergunta sempre se a explicação foi útil.
+Tens acesso a informação VERIFICADA e REAL da UTAD.
 
-Tens acesso a excertos de páginas da UTAD na secção CONTEXTO. Usa-os como fonte principal.
-Se a informação não estiver claramente no contexto, explica isso, mas tenta ainda assim orientar o utilizador
-(por exemplo, indicando serviços da UTAD, páginas prováveis ou contactos úteis).
+REGRAS ABSOLUTAS:
+1. Responde SEMPRE em Português de Portugal
+2. Usa "tu" nunca "você"
+3. Frases curtas — máximo 2 linhas por parágrafo
+4. Quando tens a informação nos dados fornecidos: dá-a DIRETAMENTE na primeira frase, sem rodeios
+5. NUNCA inventes datas, números ou factos
+6. Se a informação diz "consultar utad.pt", diz ao utilizador exatamente onde ir e dá o contacto direto
+7. NUNCA digas "não sei" sem dar uma alternativa útil
+8. Tom calmo e simples — os utilizadores podem ser idosos
+
+VERIFICAÇÃO DE CURSOS:
+- NUNCA confirmes que um curso existe a menos que apareça EXATAMENTE na lista de cursos verificada fornecida.
+- Se um curso NÃO está na lista, diz claramente que não existe na UTAD.
+- Nunca adivinhes nem assumas a existência de cursos.
+- Se o utilizador perguntar por vários cursos, responde um por linha com ✅ (existe) ou ❌ (não existe na UTAD).
+
+ELABORAÇÃO (máximo 4-5 linhas no total):
+- Perguntas SIM/NÃO sobre cursos: lista quais existem e quais não, um por linha.
+- Perguntas sobre calendário: dá a data E contexto breve (ex: quando começa e quando termina).
+- Perguntas sobre contactos: dá telefone E email E nota breve sobre o que o serviço trata.
+- Perguntas sobre candidaturas: dá 2-3 passos de contexto, não apenas o nome do portal.
+- NUNCA elabores sobre assuntos que o utilizador não perguntou.
+- NUNCA termines a resposta com "Esta resposta foi útil?" nem qualquer frase semelhante.
 """
 
 
+# ---------------------------------------------------------------------------
+# Knowledge base
+# ---------------------------------------------------------------------------
+
+_KB_PATH = Path(__file__).resolve().parent.parent / "knowledge_base.json"
+_KNOWLEDGE_BASE: Dict = {}
+
+
+def _load_knowledge_base() -> Dict:
+    """Load the local JSON knowledge base (once)."""
+    global _KNOWLEDGE_BASE
+    if _KNOWLEDGE_BASE:
+        return _KNOWLEDGE_BASE
+    try:
+        with open(_KB_PATH, "r", encoding="utf-8") as fh:
+            _KNOWLEDGE_BASE = json.load(fh)
+        LOGGER.info("Knowledge base loaded from %s (%d top-level keys)", _KB_PATH, len(_KNOWLEDGE_BASE))
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.error("Failed to load knowledge base from %s: %s", _KB_PATH, exc)
+        _KNOWLEDGE_BASE = {}
+    return _KNOWLEDGE_BASE
+
+
+# Keyword → knowledge-base section mapping
+_KEYWORD_ROUTES: List[Tuple[List[str], str]] = [
+    (
+        ["semestre", "aulas", "calendário", "calendario", "começa", "comeca",
+         "termina", "exames", "época", "epoca", "natal", "páscoa", "pascoa",
+         "férias", "ferias", "pautas"],
+        "calendario_2025_2026",
+    ),
+    (
+        ["curso", "cursos", "licenciatura", "mestrado", "doutoramento",
+         "engenharia", "enfermagem", "gestão", "gestao", "oferta", "formativa",
+         "que cursos"],
+        "cursos",
+    ),
+    (
+        ["contacto", "contactar", "telefone", "email", "morada",
+         "serviços académicos", "servicos academicos", "biblioteca",
+         "ação social", "acao social", "escola", "secretaria"],
+        "contactos",
+    ),
+    (
+        ["candidatura", "candidatar", "entrar", "inscrição", "inscricao",
+         "acesso", "dges", "notas de entrada"],
+        "candidaturas",
+    ),
+    (
+        ["propina", "propinas", "pagamento", "custo", "preço", "preco"],
+        "propinas",
+    ),
+    (
+        ["residência", "residencia", "cantina", "desporto", "saúde", "saude",
+         "bar", "campus", "instalações", "instalacoes"],
+        "servicos_campus",
+    ),
+]
+
+
+def _strip_accents(text: str) -> str:
+    """Remove diacritics from *text* for accent-insensitive comparison."""
+    nfkd = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+
+
+def _normalize_for_compare(text: str) -> str:
+    """Lowercase + accent-strip for fuzzy course name matching."""
+    return _strip_accents(text.strip().lower())
+
+
+def _check_courses(user_message: str) -> Optional[str]:
+    """
+    If the user is asking whether specific courses exist, return a
+    pre-built verification block (✅ / ❌ per course).  Otherwise return None.
+    """
+    lowered = user_message.lower()
+
+    # Heuristic: the question is about course existence
+    course_question_signals = [
+        "existe", "existem", "tem o curso", "têm o curso",
+        "há o curso", "há curso", "tem curso",
+        "oferecem", "oferece", "disponível", "disponivel",
+        "posso tirar", "posso fazer", "dá para tirar",
+        "da para tirar", "é possível", "e possivel",
+    ]
+    if not any(sig in lowered for sig in course_question_signals):
+        return None
+
+    kb = _load_knowledge_base()
+    cursos_section = kb.get("cursos", {})
+    all_courses: List[str] = (
+        cursos_section.get("licenciaturas", [])
+        + cursos_section.get("licenciaturas_sem_vagas_2025_2026", [])
+        + cursos_section.get("novos_cursos_2026_2027", [])
+    )
+    normalised_courses = {_normalize_for_compare(c): c for c in all_courses}
+
+    # Try to extract candidate course names from the user message.
+    # Split on commas / "e" / newlines after stripping the "question" part.
+    # We remove common lead-in phrases first.
+    cleaned = re.sub(
+        r"(?i)(exist[ea]m?|tem |têm |há |oferece[m]?|posso tirar|posso fazer"
+        r"|dá para tirar|da para tirar|é possível|e possivel"
+        r"|o[s]? curso[s]? de |na utad|a utad|curso[s]? de "
+        r"|curso[s]? |licenciatura[s]? (?:de |em )?|mestrado[s]? (?:de |em )?"
+        r"|doutoramento[s]? (?:de |em )?|\?)",
+        ",",
+        user_message,
+    )
+    # Split on commas and the word " e " used as separator
+    parts = re.split(r"\s*,\s*|\s+e\s+", cleaned)
+    candidates = [p.strip().strip(",").strip() for p in parts if p.strip()]
+    # Remove very short fragments that are clearly not course names
+    candidates = [c for c in candidates if len(c) >= 3]
+
+    if not candidates:
+        return None
+
+    lines: List[str] = []
+    for candidate in candidates:
+        norm_candidate = _normalize_for_compare(candidate)
+        matched = False
+        for norm_course, original_course in normalised_courses.items():
+            if norm_candidate == norm_course or norm_candidate in norm_course or norm_course in norm_candidate:
+                lines.append(f"- {original_course}: ✅ existe na UTAD")
+                matched = True
+                break
+        if not matched:
+            lines.append(f"- {candidate.title()}: ❌ não existe como curso na UTAD")
+
+    return "\n".join(lines)
+
+
+def _select_kb_sections(user_message: str) -> Dict:
+    """
+    Return the knowledge-base sections relevant to *user_message*.
+
+    ``sobre_utad`` is ALWAYS included as base context.
+    Additional sections are added when any keyword matches.
+    """
+    kb = _load_knowledge_base()
+    if not kb:
+        return {}
+
+    selected: Dict = {}
+
+    # Always inject base context
+    if "sobre_utad" in kb:
+        selected["sobre_utad"] = kb["sobre_utad"]
+
+    lowered = user_message.lower()
+    for keywords, section_key in _KEYWORD_ROUTES:
+        if any(kw in lowered for kw in keywords):
+            if section_key in kb:
+                selected[section_key] = kb[section_key]
+
+    return selected
+
+
+# ---------------------------------------------------------------------------
+# Session state
+# ---------------------------------------------------------------------------
+
 _SESSION_HISTORY: Dict[str, List[Tuple[str, str]]] = {}
+_SESSION_MESSAGE_HISTORY: Dict[str, List[BaseMessage]] = {}
+_LLM: Optional[BaseChatModel] = None
+_MAX_HISTORY_TURNS = 24
 
 
 def _get_llm():
     """
-    Build the configured LLM based on environment variables.
-
-    LLM_PROVIDER can be "claude" or "openai". Default is "claude".
+    Build the LLM used by MontesBot based on environment variables.
     """
-    # Garantimos que o conteúdo atual do .env sobrepõe qualquer variável
-    # de ambiente antiga deixada na sessão de desenvolvimento.
+    global _LLM
+    if _LLM is not None:
+        return _LLM
+
     load_dotenv(override=True)
-
-    provider = os.getenv("LLM_PROVIDER", "claude").lower()
-
     try:
-        if provider == "openai":
-            model_name = os.getenv("OPENAI_MODEL_NAME", "gpt-4o")
-            LOGGER.info("Using OpenAI model %s for MontesBot", model_name)
-            return ChatOpenAI(model=model_name, temperature=0.2)
+        provider_raw = (os.getenv("LLM_PROVIDER") or "groq").strip().lower()
+        # Friendly aliases so .env can use simpler names.
+        provider = {
+            "google": "google_genai",
+            "genai": "google_genai",
+            "google-genai": "google_genai",
+            "google_genai": "google_genai",
+            "gemini": "google_genai",
+            "groq": "groq",
+        }.get(provider_raw, provider_raw)
 
-        # Default to Anthropic Claude.
-        model_name = os.getenv("ANTHROPIC_MODEL_NAME", "claude-3-5-sonnet-20241022")
-        LOGGER.info("Using Anthropic model %s for MontesBot", model_name)
-        return ChatAnthropic(model=model_name, temperature=0.2)
+        model = (os.getenv("LLM_MODEL") or "").strip() or (
+            "llama-3.1-8b-instant" if provider == "groq" else "gemini-2.0-flash"
+        )
+
+        temperature = float(os.getenv("LLM_TEMPERATURE") or "0.3")
+        max_tokens = int(os.getenv("LLM_MAX_TOKENS") or "800")
+
+        LOGGER.info(
+            "Using LLM provider=%s model=%s temperature=%s max_tokens=%s",
+            provider,
+            model,
+            temperature,
+            max_tokens,
+        )
+
+        if provider == "groq":
+            from langchain_groq import ChatGroq
+
+            _LLM = ChatGroq(
+                model=model,
+                api_key=os.getenv("GROQ_API_KEY"),
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        elif provider in {"google_genai"}:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+
+            # Pass key explicitly (supports GEMINI_API_KEY and GOOGLE_API_KEY).
+            google_api_key = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip() or None
+            _LLM = ChatGoogleGenerativeAI(
+                model=model,
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+                google_api_key=google_api_key,
+            )
+        else:
+            # Generic fallback via LangChain's provider registry.
+            # Requires the relevant langchain-<provider> package to be installed.
+            from langchain.chat_models import init_chat_model
+
+            _LLM = init_chat_model(
+                model=model,
+                model_provider=provider,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+
+        return _LLM
     except Exception as exc:  # noqa: BLE001
         LOGGER.error("Failed to initialize LLM: %s", exc)
         raise
-
-
-def _get_vector_store() -> Chroma:
-    """Return a Chroma vector store configured consistently with the indexer."""
-    persist_directory = _get_chroma_db_path()
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        # If no OpenAI key is configured, we skip vector search entirely and
-        # rely on the real-time UTAD fallback. This keeps the bot funcional
-        # com apenas a chave da Anthropic, ainda que sem RAG completo.
-        LOGGER.warning(
-            "OPENAI_API_KEY is not set; ChromaDB search will be desativada "
-            "e o bot usará apenas o fallback em tempo real de utad.pt."
-        )
-        # Return a Chroma instance with a dummy embedding function that will
-        # never actually be called, as the search function handles this case.
-        return Chroma(
-            collection_name=DEFAULT_COLLECTION_NAME,
-            embedding_function=OpenAIEmbeddings(),  # not used sem chave válida
-            persist_directory=persist_directory,
-        )
-
-    embeddings = OpenAIEmbeddings()
-    return Chroma(
-        collection_name=DEFAULT_COLLECTION_NAME,
-        embedding_function=embeddings,
-        persist_directory=persist_directory,
-    )
-
-
-def _format_history(session_id: str, max_turns: int = 5) -> str:
-    """Serialize the recent conversation history for inclusion in the prompt."""
-    history = _SESSION_HISTORY.get(session_id, [])
-    if not history:
-        return "Sem histórico relevante."
-
-    # Only keep the last N turns for brevity.
-    recent = history[-max_turns:]
-    lines: List[str] = []
-    for role, content in recent:
-        etiqueta = "Utilizador" if role == "user" else "MontesBot"
-        lines.append(f"{etiqueta}: {content}")
-    return "\n".join(lines)
 
 
 def _update_history(session_id: str, role: str, content: str) -> None:
@@ -114,181 +294,172 @@ def _update_history(session_id: str, role: str, content: str) -> None:
     if session_id not in _SESSION_HISTORY:
         _SESSION_HISTORY[session_id] = []
     _SESSION_HISTORY[session_id].append((role, content))
+    if len(_SESSION_HISTORY[session_id]) > _MAX_HISTORY_TURNS:
+        _SESSION_HISTORY[session_id] = _SESSION_HISTORY[session_id][-_MAX_HISTORY_TURNS:]
 
 
-def _search_vector_store(query: str, n_results: int = 5) -> List[Document]:
-    """Direct similarity search wrapper for pre-checking context availability."""
-    try:
-        # Se não houver chave OpenAI, saltamos esta fase e deixamos o RAG
-        # depender apenas do fallback em tempo real.
-        if not os.getenv("OPENAI_API_KEY"):
-            LOGGER.info(
-                "OPENAI_API_KEY não está configurada; a pesquisa em ChromaDB "
-                "não será usada para esta pergunta."
-            )
-            return []
-
-        vector_store = _get_vector_store()
-        return vector_store.similarity_search(query, k=n_results)
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.error("Vector search failed for query '%s': %s", query, exc)
-        return []
+def _append_message(session_id: str, message: BaseMessage) -> None:
+    """Store structured chat history (HumanMessage / AIMessage) per sessão."""
+    history = _SESSION_MESSAGE_HISTORY.setdefault(session_id, [])
+    history.append(message)
+    if len(history) > _MAX_HISTORY_TURNS:
+        _SESSION_MESSAGE_HISTORY[session_id] = history[-_MAX_HISTORY_TURNS:]
 
 
-def _fetch_realtime_utad(query: str, max_pages: int = 2) -> List[Document]:
+def _last_user_message_before_current(session_id: str) -> str:
     """
-    Fallback: perform a small, real-time fetch of UTAD pages related to the query.
+    Return the most recent user message before the current turn.
 
-    This does not index content in Chroma; it only builds temporary context
-    for the current answer when the vector store has no relevant entries.
+    Assumes the current user message has already been appended to history.
     """
-    try:
-        base_search_url = "https://www.utad.pt/?s="
-        session = requests.Session()
-        headers = {
-            "User-Agent": "MontesBotFallback/1.0 (+https://www.utad.pt)"
-        }
+    history = _SESSION_HISTORY.get(session_id, [])
+    if not history:
+        return ""
 
-        search_url = base_search_url + requests.utils.quote(query)
-        LOGGER.info("Performing fallback search on UTAD: %s", search_url)
-        search_resp = session.get(search_url, headers=headers, timeout=10)
-        if search_resp.status_code != 200:
-            LOGGER.warning(
-                "Fallback UTAD search returned status %s", search_resp.status_code
+    for role, content in reversed(history[:-1]):
+        if role == "user" and content.strip():
+            return content.strip()
+    return ""
+
+
+def _build_retrieval_query(session_id: str, user_message: str) -> str:
+    """
+    Build a retrieval query that better handles follow-up questions.
+
+    Many follow-ups (e.g. "E o dia exato?") are too short/implicit to retrieve
+    relevant chunks. When we detect that, we prepend the last user question.
+    """
+    msg = user_message.strip()
+    if not msg:
+        return msg
+
+    lowered = msg.lower()
+    looks_like_followup = (
+        len(msg) <= 40
+        or lowered.startswith(("e ", "e o", "e a", "e os", "e as"))
+        or lowered in {"e?", "e ?", "e o?", "e a?"}
+        or any(
+            phrase in lowered
+            for phrase in (
+                "dia exato",
+                "data exata",
+                "hora",
+                "horário",
+                "quando exatamente",
+                "qual é o dia",
+                "qual o dia",
+                "qual é a data",
+                "qual a data",
+                "e depois",
+                "e em seguida",
+                "e nesse caso",
             )
-            return []
+        )
+    )
 
-        soup = BeautifulSoup(search_resp.text, "html.parser")
-        result_links: List[str] = []
-        for link in soup.find_all("a", href=True):
-            href = link["href"]
-            if "utad.pt" in href and href not in result_links:
-                result_links.append(href)
-            if len(result_links) >= max_pages:
-                break
+    if not looks_like_followup:
+        return msg
 
-        documents: List[Document] = []
-        for url in result_links:
-            try:
-                resp = session.get(url, headers=headers, timeout=10)
-                if resp.status_code != 200:
-                    continue
-                page_soup = BeautifulSoup(resp.text, "html.parser")
-                text = page_soup.get_text(separator="\n")
-                cleaned = "\n".join(
-                    line.strip() for line in text.splitlines() if line.strip()
-                )
-                if not cleaned:
-                    continue
-                title = page_soup.title.string.strip() if page_soup.title else url
-                documents.append(
-                    Document(
-                        page_content=cleaned,
-                        metadata={
-                            "source_url": url,
-                            "title": title,
-                            "category": "RealtimeFallback",
-                        },
-                    )
-                )
-            except Exception as inner_exc:  # noqa: BLE001
-                LOGGER.error("Error fetching fallback page %s: %s", url, inner_exc)
+    previous = _last_user_message_before_current(session_id)
+    if not previous:
+        return msg
 
-        LOGGER.info("Fallback UTAD fetch produced %s documents", len(documents))
-        return documents
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.error("Realtime UTAD fetch failed: %s", exc)
-        return []
+    if len(previous) > 240:
+        previous = previous[:240].rstrip() + "…"
 
+    return f"{previous}\nPergunta de seguimento: {msg}"
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
 def get_answer(session_id: str, user_message: str) -> Tuple[str, List[Dict[str, str]]]:
     """
-    Main entry point for the RAG bot.
+    Entrada principal do bot.
 
-    - Maintains per-session conversation history.
-    - Uses ChromaDB as primary context source via RetrievalQA.
-    - If no context is found, performs a small real-time fetch from utad.pt.
-
-    Returns a tuple of (answer, sources) where sources is a list of metadata
-    dictionaries with at least 'source_url' and 'title'.
+    - Mantém histórico por sessão (texto + mensagens estruturadas).
+    - Para cada pergunta, seleciona secções relevantes da knowledge base local
+      e injeta-as como contexto para o LLM.
     """
     _update_history(session_id, "user", user_message)
+    _append_message(session_id, HumanMessage(content=user_message))
 
-    history_str = _format_history(session_id)
+    retrieval_query = _build_retrieval_query(session_id, user_message)
 
     try:
         llm = _get_llm()
 
-        # Primeiro tentamos usar o contexto existente no ChromaDB.
-        source_docs: List[Document] = _search_vector_store(user_message, n_results=5)
+        # Select relevant knowledge-base sections via keyword routing
+        kb_sections = _select_kb_sections(retrieval_query)
 
-        if not source_docs:
-            # Se não houver contexto na base vetorial, usamos o fallback em tempo real.
-            temp_docs = _fetch_realtime_utad(user_message)
-            source_docs = temp_docs
+        messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT.strip())]
+        history_msgs = _SESSION_MESSAGE_HISTORY.get(session_id, [])
+        messages.extend(history_msgs)
 
-        if source_docs:
-            joined_context = "\n\n---\n\n".join(
-                doc.page_content[:4000] for doc in source_docs
+        # Pre-check: if the user asks about course existence, build a
+        # verification block so the LLM cannot hallucinate course names.
+        course_check = _check_courses(retrieval_query)
+
+        if kb_sections:
+            context_text = json.dumps(kb_sections, ensure_ascii=False, indent=2)
+
+            course_instruction = ""
+            if course_check:
+                course_instruction = (
+                    "\n\nRESULTADO DA VERIFICAÇÃO DE CURSOS (usa isto na tua resposta):\n"
+                    f"{course_check}\n"
+                    "Apresenta este resultado ao utilizador. Não alteres os ✅ e ❌."
+                )
+
+            human_content = (
+                "Abaixo tens dados VERIFICADOS da UTAD (knowledge base oficial):\n\n"
+                f"{context_text}\n\n"
+                "Usa EXCLUSIVAMENTE estes dados para responder à pergunta seguinte. "
+                "Dá a resposta logo na primeira frase, de forma direta. "
+                "Se a informação não estiver nos dados, indica o contacto ou URL exato onde o utilizador pode obtê-la."
+                f"{course_instruction}\n\n"
+                f"Pergunta do utilizador:\n{user_message}"
             )
-            prompt = (
-                SYSTEM_PROMPT_PT.strip()
-                + "\n\n"
-                + "CONTEXTO:\n"
-                + joined_context
-                + "\n\nHistórico recente da conversa:\n"
-                + history_str
-                + "\n\nPergunta do utilizador:\n"
-                + user_message
-            )
-            answer = llm.invoke(prompt).content.strip()
+            messages.append(HumanMessage(content=human_content))
         else:
-            # Último recurso: sem qualquer contexto documental.
-            prompt = (
-                SYSTEM_PROMPT_PT.strip()
-                + "\n\n"
-                + "Não tens contexto adicional de documentos. "
-                + "Com base no teu conhecimento geral e bom senso, tenta orientar o utilizador:\n"
-                + f"Pergunta: {user_message}"
+            human_content = (
+                "Não foi possível carregar a knowledge base da UTAD.\n\n"
+                "Responde com base apenas no que sabes de verificado. "
+                "Se não tiveres a certeza, indica ao utilizador que contacte os "
+                "Serviços Académicos pelo 259 350 049 ou consulte utad.pt.\n\n"
+                f"Pergunta do utilizador:\n{user_message}"
             )
-            answer = llm.invoke(prompt).content.strip()
+            messages.append(HumanMessage(content=human_content))
+
+        answer = llm.invoke(messages).content.strip()
 
         if not answer:
             answer = (
-                "Não encontrei informação clara nos dados disponíveis. "
-                "Recomendo consultar diretamente o site da UTAD ou contactar os serviços relevantes. "
-                "Esta resposta foi útil?"
+                "Neste momento não te consigo dar essa informação específica. "
+                "Contacta os Serviços Académicos pelo 259 350 049 ou consulta utad.pt."
             )
-        else:
-            # Ensure the answer ends with the required follow-up question.
-            if not answer.strip().endswith("?"):
-                answer = answer.rstrip() + "\n\nEsta resposta foi útil?"
 
         _update_history(session_id, "assistant", answer)
+        _append_message(session_id, AIMessage(content=answer))
 
-        sources: List[Dict[str, str]] = []
-        for doc in source_docs:
-            metadata = doc.metadata or {}
-            sources.append(
-                {
-                    "source_url": metadata.get("source_url", ""),
-                    "title": metadata.get("title", ""),
-                    "category": metadata.get("category", ""),
-                }
-            )
+        sources: List[Dict[str, str]] = [
+            {
+                "source_url": "https://www.utad.pt",
+                "title": "Knowledge Base UTAD",
+                "category": "KnowledgeBase",
+            }
+        ]
 
         return answer, sources
     except Exception as exc:  # noqa: BLE001
         LOGGER.error("Error generating answer for session %s: %s", session_id, exc)
-        message = str(exc)
         fallback = (
-            "Ocorreu um problema ao falar com o serviço de IA que gera as respostas. "
-            "Mensagem técnica recebida do fornecedor externo: "
-            f"\"{message}\". "
-            "Por favor pede ao responsável técnico para verificar as chaves e o estado da conta configurada no ficheiro .env. "
-            "Entretanto, consulta diretamente o site da UTAD para informação atualizada. "
-            "Esta resposta foi útil?"
+            "Neste momento não consigo responder a essa pergunta. "
+            "Contacta os Serviços Académicos da UTAD pelo 259 350 049 ou "
+            "consulta utad.pt para informação atualizada."
         )
         _update_history(session_id, "assistant", fallback)
+        _append_message(session_id, AIMessage(content=fallback))
         return fallback, []
 
