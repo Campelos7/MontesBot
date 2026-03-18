@@ -1,9 +1,15 @@
 
+COMANDOS PARA INSERIR NO TERMINAL:
 
-.\venv\Scripts\python.exe -m uvicorn api.main:app --reload --port 8000
-http://127.0.0.1:8000
+py -3.11 -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 
-fechar tudo taskkill /F /IM python.exe
+PARA DAR RUN:
+python -m uvicorn api.main:app --reload --port 8000
+
+PARA FECHAR RUNS EM SEGUNDO PLANO:
+taskkill /F /IM python.exe
 
 
 
