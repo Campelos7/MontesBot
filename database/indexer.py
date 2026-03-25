@@ -192,3 +192,15 @@ def get_document_count() -> int:
         LOGGER.error("Failed to count documents in ChromaDB: %s", exc)
         return 0
 
+
+def documents_within_max_distance(
+    pairs: List[tuple[Document, float]], max_distance: float
+) -> List[Document]:
+    """
+    Filtra documentos com base numa distância máxima.
+
+    Esta função existe principalmente para suportar a test-suite
+    (ver `tests/test_indexer_distance.py`).
+    """
+    return [doc for doc, distance in pairs if distance <= max_distance]
+
