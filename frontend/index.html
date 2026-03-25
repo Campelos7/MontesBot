@@ -4,6 +4,27 @@
   <meta charset="UTF-8" />
   <title>MontesBot 🤖 — Assistente UTAD</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/open-dyslexic@1.0.3/open-dyslexic-regular.css"
+    crossorigin="anonymous"
+  />
+  <script>
+    (function () {
+      try {
+        var raw = localStorage.getItem("montesbot_a11y_v1");
+        if (!raw) return;
+        var p = JSON.parse(raw);
+        var h = document.documentElement;
+        if (p.highContrast) h.setAttribute("data-high-contrast", "true");
+        if (p.fontScale) h.setAttribute("data-font-scale", p.fontScale);
+        if (p.fontFamily) h.setAttribute("data-font-family", p.fontFamily);
+        if (p.lineSpacing) h.setAttribute("data-line-spacing", p.lineSpacing);
+        if (p.focusStrong) h.setAttribute("data-focus-strong", "true");
+        if (p.instantMessages) h.setAttribute("data-instant-messages", "true");
+      } catch (e) {}
+    })();
+  </script>
   <style>
     :root {
       --utad-blue: #003a70;
@@ -16,6 +37,60 @@
       --error-bg: #ffe5e5;
       --border-soft: #dde3f0;
       --shadow-soft: 0 18px 45px rgba(0, 34, 102, 0.18);
+      --fs-base: 18px;
+      --lh-content: 1.55;
+      --gap-messages: 14px;
+      --focus-ring-width: 2px;
+      --focus-ring-offset: 2px;
+    }
+
+    html[data-font-scale="sm"] {
+      --fs-base: 15px;
+    }
+    html[data-font-scale="md"] {
+      --fs-base: 18px;
+    }
+    html[data-font-scale="lg"] {
+      --fs-base: 21px;
+    }
+    html[data-font-scale="xl"] {
+      --fs-base: 24px;
+    }
+
+    html[data-line-spacing="relaxed"] {
+      --lh-content: 1.75;
+      --gap-messages: 18px;
+    }
+    html[data-line-spacing="wide"] {
+      --lh-content: 2;
+      --gap-messages: 22px;
+    }
+
+    html[data-high-contrast="true"] {
+      --utad-blue: #000000;
+      --utad-accent: #0000cc;
+      --background: #ffffff;
+      --background-gradient: none;
+      --text-color: #000000;
+      --bot-bg: #ffff00;
+      --user-bg: #ffffff;
+      --error-bg: #ffffff;
+      --border-soft: #000000;
+      --shadow-soft: 0 0 0 2px #000000;
+    }
+
+    html[data-font-family="dyslexic"] body {
+      font-family: "OpenDyslexicRegular", "OpenDyslexic", system-ui, sans-serif;
+    }
+
+    html[data-focus-strong="true"] {
+      --focus-ring-width: 4px;
+      --focus-ring-offset: 4px;
+    }
+
+    html[data-focus-strong="true"] *:focus-visible {
+      outline: var(--focus-ring-width) solid var(--utad-accent);
+      outline-offset: var(--focus-ring-offset);
     }
 
     * {
@@ -27,8 +102,9 @@
       padding: 0;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: var(--background-gradient);
+      background-color: var(--background);
       color: var(--text-color);
-      font-size: 18px;
+      font-size: var(--fs-base);
       line-height: 1.5;
     }
 
@@ -62,10 +138,51 @@
     .chat-header {
       background: linear-gradient(135deg, var(--utad-blue), var(--utad-accent));
       color: #ffffff;
-      padding: 18px 22px;
+      padding: 18px 16px 18px 22px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .header-main {
       display: flex;
       align-items: center;
       gap: 12px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .settings-btn {
+      flex-shrink: 0;
+      width: 48px;
+      height: 48px;
+      min-width: 48px;
+      min-height: 48px;
+      border-radius: 12px;
+      border: 2px solid rgba(255, 255, 255, 0.85);
+      background: rgba(0, 0, 0, 0.15);
+      color: #ffffff;
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s ease, transform 0.1s ease;
+    }
+
+    .settings-btn:hover,
+    .settings-btn:focus-visible {
+      background: rgba(255, 255, 255, 0.25);
+      outline: var(--focus-ring-width) solid #ffffff;
+      outline-offset: var(--focus-ring-offset);
+    }
+
+    html[data-high-contrast="true"] .settings-btn {
+      border-color: #ffff00;
+      color: #ffff00;
+      background: #000000;
     }
 
     .bot-avatar {
@@ -103,10 +220,14 @@
       display: flex;
       flex-direction: column;
       padding: 18px 18px 12px;
-      gap: 14px;
+      gap: var(--gap-messages);
       max-height: 70vh;
       overflow-y: auto;
       background: linear-gradient(to bottom, #f9fbff 0, #ffffff 18%, #ffffff 100%);
+    }
+
+    html[data-high-contrast="true"] .chat-body {
+      background: #ffffff;
     }
 
     .message {
@@ -129,18 +250,80 @@
       border-right: 4px solid var(--utad-accent);
     }
 
+    .bubble-wrap {
+      max-width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-start;
+    }
+
+    .message.user .bubble-wrap {
+      align-items: flex-end;
+    }
+
     .bubble {
       padding: 12px 16px;
       border-radius: 12px;
       max-width: 100%;
       word-wrap: break-word;
-      font-size: 18px;
+      font-size: var(--fs-base);
       box-shadow: 0 3px 10px rgba(0, 0, 0, 0.04);
+    }
+
+    html[data-high-contrast="true"] .bubble {
+      box-shadow: 0 0 0 2px #000000;
     }
 
     .bubble .content {
       white-space: pre-wrap;
-      line-height: 1.55;
+      line-height: var(--lh-content);
+    }
+
+    .message-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding-left: 4px;
+    }
+
+    .message.user .message-tools {
+      padding-left: 0;
+      padding-right: 4px;
+      justify-content: flex-end;
+    }
+
+    .tool-btn {
+      font-family: inherit;
+      font-size: calc(var(--fs-base) * 0.85);
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--utad-accent);
+      background: #ffffff;
+      color: var(--utad-accent);
+      cursor: pointer;
+      min-height: 40px;
+    }
+
+    .tool-btn:hover,
+    .tool-btn:focus-visible {
+      background: var(--utad-accent);
+      color: #ffffff;
+      outline: var(--focus-ring-width) solid var(--utad-accent);
+      outline-offset: var(--focus-ring-offset);
+    }
+
+    html[data-high-contrast="true"] .tool-btn {
+      border-width: 2px;
+      border-color: #000000;
+      color: #000000;
+      background: #ffff00;
+    }
+
+    html[data-high-contrast="true"] .tool-btn:hover,
+    html[data-high-contrast="true"] .tool-btn:focus-visible {
+      background: #000000;
+      color: #ffff00;
     }
 
     .bubble strong {
@@ -160,7 +343,7 @@
     }
 
     .typing-indicator {
-      font-size: 16px;
+      font-size: calc(var(--fs-base) * 0.9);
       color: #444444;
       display: none;
       padding: 0 16px 8px;
@@ -179,6 +362,60 @@
       background-color: #f7f9ff;
     }
 
+    html[data-high-contrast="true"] .chat-footer {
+      background: #ffffff;
+    }
+
+    .suggestions-toggle {
+      width: 100%;
+      text-align: left;
+      padding: 10px 12px;
+      border: 1px solid var(--border-soft);
+      border-radius: 10px;
+      background: #ffffff;
+      font-family: inherit;
+      font-size: calc(var(--fs-base) * 0.95);
+      color: var(--text-color);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      min-height: 44px;
+    }
+
+    .suggestions-toggle:hover,
+    .suggestions-toggle:focus-visible {
+      border-color: var(--utad-accent);
+      outline: var(--focus-ring-width) solid var(--utad-accent);
+      outline-offset: var(--focus-ring-offset);
+    }
+
+    html[data-high-contrast="true"] .suggestions-toggle {
+      border-width: 2px;
+      border-color: #000000;
+    }
+
+    .suggestions-panel {
+      display: none;
+      margin-top: 8px;
+    }
+
+    .suggestions-panel.is-open {
+      display: block;
+    }
+
+    .suggestions-label {
+      margin: 0 0 8px;
+      font-size: calc(var(--fs-base) * 0.88);
+      font-weight: 600;
+      color: #444;
+    }
+
+    html[data-high-contrast="true"] .suggestions-label {
+      color: #000000;
+    }
+
     .suggestions {
       display: flex;
       flex-wrap: wrap;
@@ -192,18 +429,34 @@
       color: var(--utad-accent);
       border-radius: 999px;
       padding: 6px 14px;
-      font-size: 16px;
+      font-family: inherit;
+      font-size: calc(var(--fs-base) * 0.88);
       cursor: pointer;
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
       transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+      min-height: 40px;
     }
 
     .suggestion-btn:hover,
     .suggestion-btn:focus-visible {
       background-color: var(--utad-accent);
       color: #ffffff;
-      outline: none;
+      outline: var(--focus-ring-width) solid var(--utad-accent);
+      outline-offset: var(--focus-ring-offset);
       transform: translateY(-1px);
+    }
+
+    html[data-high-contrast="true"] .suggestion-btn {
+      border-width: 2px;
+      border-color: #000000;
+      color: #000000;
+      background: #ffff00;
+    }
+
+    html[data-high-contrast="true"] .suggestion-btn:hover,
+    html[data-high-contrast="true"] .suggestion-btn:focus-visible {
+      background: #000000;
+      color: #ffff00;
     }
 
     .input-row {
@@ -217,12 +470,13 @@
       padding: 10px 12px;
       border-radius: 10px;
       border: 1px solid #c0c9e2;
-      font-size: 18px;
+      font-size: var(--fs-base);
       background-color: #ffffff;
     }
 
     #user-input:focus-visible {
-      outline: 2px solid var(--utad-accent);
+      outline: var(--focus-ring-width) solid var(--utad-accent);
+      outline-offset: var(--focus-ring-offset);
       border-color: var(--utad-accent);
     }
 
@@ -232,7 +486,7 @@
       border: none;
       border-radius: 10px;
       padding: 10px 18px;
-      font-size: 18px;
+      font-size: var(--fs-base);
       cursor: pointer;
       min-width: 110px;
       box-shadow: 0 4px 10px rgba(0, 58, 112, 0.35);
@@ -242,23 +496,342 @@
     #send-btn:hover,
     #send-btn:focus-visible {
       background-color: var(--utad-accent);
-      outline: none;
+      outline: var(--focus-ring-width) solid #ffffff;
+      outline-offset: var(--focus-ring-offset);
       transform: translateY(-1px);
       box-shadow: 0 6px 16px rgba(0, 102, 204, 0.45);
     }
 
-    .error-banner {
-      background-color: var(--error-bg);
-      color: #660000;
-      padding: 8px 12px;
-      margin: 0 12px 8px;
+    #mic-btn {
+      flex-shrink: 0;
+      min-width: 48px;
+      min-height: 48px;
+      border-radius: 10px;
+      border: 1px solid #c0c9e2;
+      background: #ffffff;
+      font-size: 22px;
+      cursor: pointer;
+    }
+
+    #mic-btn:hover,
+    #mic-btn:focus-visible {
+      border-color: var(--utad-accent);
+      outline: var(--focus-ring-width) solid var(--utad-accent);
+      outline-offset: var(--focus-ring-offset);
+    }
+
+    #mic-btn.is-listening {
+      background: #ffe0e0;
+      border-color: #c00;
+    }
+
+    .settings-dialog {
+      max-width: min(520px, calc(100vw - 32px));
+      width: 100%;
+      padding: 0;
+      border: 2px solid var(--utad-blue);
+      border-radius: 14px;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .settings-dialog::backdrop {
+      background: rgba(0, 0, 0, 0.45);
+    }
+
+    .settings-inner {
+      padding: 20px 22px 18px;
+      max-height: min(85vh, 720px);
+      overflow-y: auto;
+    }
+
+    .settings-inner h2 {
+      margin: 0 0 6px;
+      font-size: calc(var(--fs-base) * 1.15);
+    }
+
+    .settings-intro {
+      margin: 0 0 16px;
+      font-size: calc(var(--fs-base) * 0.9);
+      color: #333;
+    }
+
+    html[data-high-contrast="true"] .settings-intro {
+      color: #000000;
+    }
+
+    .settings-section {
+      margin-bottom: 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .settings-section:last-of-type {
+      border-bottom: none;
+    }
+
+    .settings-section h3 {
+      margin: 0 0 10px;
+      font-size: calc(var(--fs-base) * 1.02);
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    .setting-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .setting-text {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .setting-text strong {
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .setting-text span {
+      font-size: calc(var(--fs-base) * 0.88);
+      opacity: 0.9;
+    }
+
+    .setting-control {
+      flex-shrink: 0;
+    }
+
+    select.a11y-select {
+      font-family: inherit;
+      font-size: calc(var(--fs-base) * 0.95);
+      padding: 8px 10px;
       border-radius: 8px;
-      font-size: 16px;
+      border: 1px solid var(--border-soft);
+      min-width: 140px;
+      background: #fff;
+    }
+
+    .switch {
+      position: relative;
+      width: 52px;
+      height: 30px;
+      border-radius: 999px;
+      border: 2px solid var(--utad-blue);
+      background: #e8e8e8;
+      cursor: pointer;
+      padding: 0;
+      flex-shrink: 0;
+    }
+
+    .switch[aria-checked="true"] {
+      background: var(--utad-accent);
+      border-color: var(--utad-accent);
+    }
+
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+      transition: transform 0.15s ease;
+    }
+
+    .switch[aria-checked="true"]::after {
+      transform: translateX(22px);
+    }
+
+    .switch:focus-visible {
+      outline: var(--focus-ring-width) solid var(--utad-accent);
+      outline-offset: var(--focus-ring-offset);
+    }
+
+    html[data-high-contrast="true"] .switch {
+      border-color: #000000;
+    }
+
+    .settings-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .btn-close-settings {
+      font-family: inherit;
+      font-size: var(--fs-base);
+      padding: 10px 20px;
+      border-radius: 10px;
+      border: none;
+      background: var(--utad-blue);
+      color: #fff;
+      cursor: pointer;
+      min-height: 44px;
+    }
+
+    .btn-close-settings:focus-visible {
+      outline: var(--focus-ring-width) solid var(--utad-accent);
+      outline-offset: var(--focus-ring-offset);
+    }
+
+    html[data-instant-messages="true"] .typing-indicator {
+      display: none !important;
+    }
+
+    .status-banner {
+      margin: 0;
+      padding: 0;
+      border-bottom: 1px solid var(--border-soft);
       display: none;
     }
 
-    .error-banner.visible {
+    .status-banner.visible {
       display: block;
+    }
+
+    .status-banner-inner {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 16px 20px;
+      font-size: calc(var(--fs-base) * 0.95);
+      line-height: 1.5;
+    }
+
+    .status-banner-icon {
+      font-size: 1.75rem;
+      line-height: 1;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .status-banner-main {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .status-banner-title {
+      display: block;
+      font-size: calc(var(--fs-base) * 1.05);
+      font-weight: 700;
+      margin: 0 0 6px;
+      color: var(--text-color);
+    }
+
+    .status-banner-body {
+      margin: 0 0 8px;
+      color: #444;
+    }
+
+    html[data-high-contrast="true"] .status-banner-body {
+      color: #000000;
+    }
+
+    .status-banner-steps {
+      margin: 0;
+      padding-left: 1.15rem;
+      color: #444;
+      font-size: calc(var(--fs-base) * 0.88);
+    }
+
+    html[data-high-contrast="true"] .status-banner-steps {
+      color: #000000;
+    }
+
+    .status-banner-steps li {
+      margin-bottom: 4px;
+    }
+
+    .status-banner-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .status-banner-btn {
+      font-family: inherit;
+      font-size: calc(var(--fs-base) * 0.85);
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      min-height: 44px;
+      transition: filter 0.15s ease, background 0.15s ease;
+    }
+
+    .status-banner-btn:focus-visible {
+      outline: var(--focus-ring-width) solid var(--utad-accent);
+      outline-offset: var(--focus-ring-offset);
+    }
+
+    .status-banner-btn--primary {
+      background: var(--utad-blue);
+      color: #fff;
+      border-color: rgba(0, 0, 0, 0.08);
+    }
+
+    .status-banner-btn--primary:hover {
+      filter: brightness(1.06);
+    }
+
+    .status-banner-btn--ghost {
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--utad-blue);
+      border-color: rgba(11, 110, 207, 0.35);
+    }
+
+    .status-banner-btn--ghost:hover {
+      background: #e8f0ff;
+    }
+
+    .status-banner--offline .status-banner-inner {
+      background: linear-gradient(135deg, #eef4fc 0%, #e4ecf8 100%);
+      border-left: 4px solid var(--utad-accent);
+    }
+
+    .status-banner--warn .status-banner-inner {
+      background: linear-gradient(135deg, #fff9e6 0%, #fff3cc 100%);
+      border-left: 4px solid #c9a227;
+    }
+
+    .status-banner--warn .status-banner-title {
+      color: #5c4810;
+    }
+
+    .status-banner--error .status-banner-inner {
+      background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
+      border-left: 4px solid #c62828;
+    }
+
+    .status-banner--error .status-banner-title {
+      color: #7f1a1a;
+    }
+
+    html[data-high-contrast="true"] .status-banner--offline .status-banner-inner {
+      background: #ffff00;
+      border-left-color: #000000;
+    }
+
+    html[data-high-contrast="true"] .status-banner--warn .status-banner-inner {
+      background: #ffffff;
+      border: 2px solid #000000;
+      border-left-width: 6px;
+    }
+
+    html[data-high-contrast="true"] .status-banner--error .status-banner-inner {
+      background: #ffffff;
+      border: 2px solid #000000;
+      border-left-width: 6px;
     }
 
     @media (max-width: 600px) {
@@ -280,24 +853,177 @@
   <div class="page">
     <div class="chat-container" aria-label="Chat com o assistente MontesBot">
       <header class="chat-header">
-        <div class="bot-avatar" aria-hidden="true">🤖</div>
-        <div class="header-text">
-          <h1>MontesBot 🤖</h1>
-          <p>Assistente da UTAD para perguntas sobre cursos, serviços e vida académica.</p>
+        <div class="header-main">
+          <div class="bot-avatar" aria-hidden="true">🤖</div>
+          <div class="header-text">
+            <h1>MontesBot 🤖</h1>
+            <p>Assistente da UTAD para perguntas sobre cursos, serviços e vida académica.</p>
+          </div>
         </div>
+        <button
+          type="button"
+          id="settings-btn"
+          class="settings-btn"
+          aria-haspopup="dialog"
+          aria-expanded="false"
+          aria-controls="settings-dialog"
+          title="Definições de acessibilidade"
+        >
+          <span aria-hidden="true">⚙️</span>
+          <span class="visually-hidden">Abrir definições de acessibilidade</span>
+        </button>
       </header>
 
-      <div id="error-banner" class="error-banner" role="alert" aria-live="assertive">
-        Ocorreu um problema ao comunicar com o servidor. Por favor verifica a tua ligação e tenta novamente.
+      <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
+        <div class="settings-inner">
+          <h2 id="settings-title">Definições de acessibilidade</h2>
+          <p class="settings-intro">
+            Estas opções ficam guardadas neste dispositivo. Podes fechar com Esc ou o botão Fechar.
+          </p>
+
+          <div class="settings-section" role="group" aria-labelledby="lbl-visual">
+            <h3 id="lbl-visual">Visual e contraste</h3>
+            <div class="setting-row">
+              <div class="setting-text">
+                <strong>Modo de alto contraste</strong>
+                <span>Cores com máximo contraste para baixa visão ou sensibilidade à luz.</span>
+              </div>
+              <button type="button" class="switch setting-control" id="sw-high-contrast" role="switch" aria-checked="false" aria-label="Alto contraste"></button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <strong>Tamanho do texto</strong>
+                <span>Corpo das mensagens e da página.</span>
+              </div>
+              <div class="setting-control">
+                <label class="visually-hidden" for="sel-font-scale">Tamanho do texto</label>
+                <select id="sel-font-scale" class="a11y-select">
+                  <option value="sm">Pequeno</option>
+                  <option value="md" selected>Médio</option>
+                  <option value="lg">Grande</option>
+                  <option value="xl">Extra grande</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <strong>Tipografia</strong>
+                <span>Letra padrão ou fonte pensada para dislexia (OpenDyslexic).</span>
+              </div>
+              <div class="setting-control">
+                <label class="visually-hidden" for="sel-font-family">Tipografia</label>
+                <select id="sel-font-family" class="a11y-select">
+                  <option value="system" selected>Sans serif (padrão)</option>
+                  <option value="dyslexic">OpenDyslexic</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <strong>Espaçamento entre linhas</strong>
+                <span>Mais espaço dentro das mensagens e entre mensagens.</span>
+              </div>
+              <div class="setting-control">
+                <label class="visually-hidden" for="sel-line-spacing">Espaçamento entre linhas</label>
+                <select id="sel-line-spacing" class="a11y-select">
+                  <option value="normal" selected>Normal</option>
+                  <option value="relaxed">Relaxado</option>
+                  <option value="wide">Largo</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section" role="group" aria-labelledby="lbl-interaction">
+            <h3 id="lbl-interaction">Controlo de interação</h3>
+            <div class="setting-row">
+              <div class="setting-text">
+                <strong>Mensagens instantâneas</strong>
+                <span>Oculta o aviso “a pensar…” para respostas mais diretas.</span>
+              </div>
+              <button type="button" class="switch setting-control" id="sw-instant" role="switch" aria-checked="false" aria-label="Mensagens instantâneas"></button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <strong>Sem sons de notificação</strong>
+                <span>O MontesBot não reproduz sons; mantém desligado se no futuro existirem alertas.</span>
+              </div>
+              <button type="button" class="switch setting-control" id="sw-sounds-off" role="switch" aria-checked="true" aria-label="Sem sons"></button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <strong>Sessão estável</strong>
+                <span>A conversa não é limpa por inatividade nesta versão; preferência guardada para futuras melhorias.</span>
+              </div>
+              <button type="button" class="switch setting-control" id="sw-session" role="switch" aria-checked="true" aria-label="Sessão estável"></button>
+            </div>
+          </div>
+
+          <div class="settings-section" role="group" aria-labelledby="lbl-assist">
+            <h3 id="lbl-assist">Leitura, escrita e foco</h3>
+            <div class="setting-row">
+              <div class="setting-text">
+                <strong>Ler respostas automaticamente</strong>
+                <span>Quando chega uma nova mensagem do bot, o sintetizador de voz lê em voz alta (pt).</span>
+              </div>
+              <button type="button" class="switch setting-control" id="sw-tts-auto" role="switch" aria-checked="false" aria-label="Ler respostas automaticamente"></button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-text">
+                <strong>Foco do teclado mais visível</strong>
+                <span>Anel de foco mais espesso nos botões e campos.</span>
+              </div>
+              <button type="button" class="switch setting-control" id="sw-focus" role="switch" aria-checked="false" aria-label="Foco visível"></button>
+            </div>
+          </div>
+
+          <div class="settings-actions">
+            <button type="button" class="btn-close-settings" id="settings-close">Fechar definições</button>
+          </div>
+        </div>
+      </dialog>
+
+      <div
+        id="status-banner"
+        class="status-banner"
+        role="alert"
+        aria-live="assertive"
+        aria-atomic="true"
+      >
+        <div class="status-banner-inner">
+          <span class="status-banner-icon" id="status-banner-icon" aria-hidden="true">📡</span>
+          <div class="status-banner-main">
+            <strong class="status-banner-title" id="status-banner-title"></strong>
+            <p class="status-banner-body" id="status-banner-body"></p>
+            <ol class="status-banner-steps" id="status-banner-steps" hidden></ol>
+            <div class="status-banner-actions" id="status-banner-actions">
+              <button type="button" class="status-banner-btn status-banner-btn--primary" id="status-banner-retry">
+                Verificar ligação
+              </button>
+              <button type="button" class="status-banner-btn status-banner-btn--ghost" id="status-banner-dismiss">
+                Fechar aviso
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <main id="chat-body" class="chat-body" aria-live="polite">
+      <main id="chat-body" class="chat-body" aria-live="polite" aria-busy="false">
         <div class="message bot">
-          <div class="bubble">
-            <strong>MontesBot</strong>
-            Olá! Sou o assistente virtual da UTAD. Podes perguntar-me sobre cursos, calendários, propinas, serviços académicos e muito mais.
-            <br /><br />
-            Se quiseres, podes começar com uma das perguntas sugeridas em baixo.
+          <div class="bubble-wrap">
+            <div class="bubble">
+              <strong>MontesBot</strong>
+              <div class="content">
+                Olá! Sou o assistente virtual da UTAD. Podes perguntar-me sobre cursos, calendários, propinas, serviços académicos e muito mais.
+
+                Se quiseres, podes começar com uma das perguntas sugeridas em baixo.
+              </div>
+            </div>
+            <div class="message-tools" role="group" aria-label="Ações desta resposta">
+              <button type="button" class="tool-btn tts-btn" data-tts="" aria-label="Ler esta resposta em voz alta">
+                Ler em voz alta
+              </button>
+            </div>
           </div>
         </div>
       </main>
@@ -307,22 +1033,38 @@
       </div>
 
       <footer class="chat-footer">
-        <div class="suggestions" aria-label="Perguntas sugeridas">
-          <button class="suggestion-btn" type="button">
-            Quais são os cursos disponíveis na UTAD?
-          </button>
-          <button class="suggestion-btn" type="button">
-            Quando começa o próximo semestre?
-          </button>
-          <button class="suggestion-btn" type="button">
-            Como contactar os serviços académicos?
-          </button>
-          <button class="suggestion-btn" type="button">
-            Como me candidatar à UTAD?
-          </button>
+        <button
+          type="button"
+          id="toggle-suggestions"
+          class="suggestions-toggle"
+          aria-expanded="false"
+          aria-controls="suggestions-panel"
+        >
+          <span class="toggle-label">Sugestões de perguntas</span>
+          <span class="chevron" aria-hidden="true">▼</span>
+        </button>
+        <div id="suggestions-panel" class="suggestions-panel">
+          <p class="suggestions-label" id="suggestions-heading">Exemplos</p>
+          <div class="suggestions" role="group" aria-labelledby="suggestions-heading">
+            <button class="suggestion-btn" type="button">
+              Quais são os cursos disponíveis na UTAD?
+            </button>
+            <button class="suggestion-btn" type="button">
+              Quando começa o próximo semestre?
+            </button>
+            <button class="suggestion-btn" type="button">
+              Como contactar os serviços académicos?
+            </button>
+            <button class="suggestion-btn" type="button">
+              Como me candidatar à UTAD?
+            </button>
+          </div>
         </div>
         <div class="input-row">
           <label for="user-input" class="visually-hidden">Escreve a tua pergunta</label>
+          <button type="button" id="mic-btn" aria-label="Ditar pergunta com o microfone" title="Ditar (voz para texto)">
+            <span aria-hidden="true">🎤</span>
+          </button>
           <input
             id="user-input"
             type="text"
@@ -351,18 +1093,319 @@
 
   <script>
     (function () {
-      const API_BASE = 'http://localhost:8000';
+      var API_BASE =
+        window.location.protocol === 'file:' || !window.location.host
+          ? 'http://127.0.0.1:8000'
+          : window.location.origin;
 
-      const chatBody = document.getElementById('chat-body');
-      const userInput = document.getElementById('user-input');
-      const sendBtn = document.getElementById('send-btn');
-      const typingIndicator = document.getElementById('typing-indicator');
-      const errorBanner = document.getElementById('error-banner');
+      var STORAGE_A11Y = 'montesbot_a11y_v1';
+      var defaults = {
+        highContrast: false,
+        fontScale: 'md',
+        fontFamily: 'system',
+        lineSpacing: 'normal',
+        instantMessages: false,
+        soundsOff: true,
+        sessionStable: true,
+        ttsAuto: false,
+        focusStrong: false,
+      };
+
+      function loadPrefs() {
+        try {
+          var raw = localStorage.getItem(STORAGE_A11Y);
+          if (!raw) return Object.assign({}, defaults);
+          return Object.assign({}, defaults, JSON.parse(raw));
+        } catch (e) {
+          return Object.assign({}, defaults);
+        }
+      }
+
+      function savePrefs(p) {
+        try {
+          localStorage.setItem(STORAGE_A11Y, JSON.stringify(p));
+        } catch (e) {}
+      }
+
+      function applyPrefs(p) {
+        var h = document.documentElement;
+        if (p.highContrast) h.setAttribute('data-high-contrast', 'true');
+        else h.removeAttribute('data-high-contrast');
+        h.setAttribute('data-font-scale', p.fontScale || 'md');
+        h.setAttribute('data-font-family', p.fontFamily || 'system');
+        h.setAttribute('data-line-spacing', p.lineSpacing || 'normal');
+        if (p.focusStrong) h.setAttribute('data-focus-strong', 'true');
+        else h.removeAttribute('data-focus-strong');
+        if (p.instantMessages) h.setAttribute('data-instant-messages', 'true');
+        else h.removeAttribute('data-instant-messages');
+      }
+
+      var chatBody = document.getElementById('chat-body');
+      var userInput = document.getElementById('user-input');
+      var sendBtn = document.getElementById('send-btn');
+      var typingIndicator = document.getElementById('typing-indicator');
+      var statusBanner = document.getElementById('status-banner');
+      var statusBannerTitle = document.getElementById('status-banner-title');
+      var statusBannerBody = document.getElementById('status-banner-body');
+      var statusBannerSteps = document.getElementById('status-banner-steps');
+      var statusBannerIcon = document.getElementById('status-banner-icon');
+      var statusBannerRetry = document.getElementById('status-banner-retry');
+      var statusBannerDismiss = document.getElementById('status-banner-dismiss');
+      var settingsBtn = document.getElementById('settings-btn');
+      var settingsDialog = document.getElementById('settings-dialog');
+      var settingsClose = document.getElementById('settings-close');
+      var micBtn = document.getElementById('mic-btn');
+      var toggleSuggestions = document.getElementById('toggle-suggestions');
+      var suggestionsPanel = document.getElementById('suggestions-panel');
+      var toggleLabel = toggleSuggestions.querySelector('.toggle-label');
+      var toggleChevron = toggleSuggestions.querySelector('.chevron');
+
+      var swHigh = document.getElementById('sw-high-contrast');
+      var swInstant = document.getElementById('sw-instant');
+      var swSounds = document.getElementById('sw-sounds-off');
+      var swSession = document.getElementById('sw-session');
+      var swTts = document.getElementById('sw-tts-auto');
+      var swFocus = document.getElementById('sw-focus');
+      var selScale = document.getElementById('sel-font-scale');
+      var selFam = document.getElementById('sel-font-family');
+      var selLine = document.getElementById('sel-line-spacing');
+
+      function syncFormFromPrefs(p) {
+        swHigh.setAttribute('aria-checked', p.highContrast ? 'true' : 'false');
+        swInstant.setAttribute('aria-checked', p.instantMessages ? 'true' : 'false');
+        swSounds.setAttribute('aria-checked', p.soundsOff ? 'true' : 'false');
+        swSession.setAttribute('aria-checked', p.sessionStable ? 'true' : 'false');
+        swTts.setAttribute('aria-checked', p.ttsAuto ? 'true' : 'false');
+        swFocus.setAttribute('aria-checked', p.focusStrong ? 'true' : 'false');
+        selScale.value = p.fontScale;
+        selFam.value = p.fontFamily;
+        selLine.value = p.lineSpacing;
+      }
+
+      function collectPrefs() {
+        return {
+          highContrast: swHigh.getAttribute('aria-checked') === 'true',
+          fontScale: selScale.value,
+          fontFamily: selFam.value,
+          lineSpacing: selLine.value,
+          instantMessages: swInstant.getAttribute('aria-checked') === 'true',
+          soundsOff: swSounds.getAttribute('aria-checked') === 'true',
+          sessionStable: swSession.getAttribute('aria-checked') === 'true',
+          ttsAuto: swTts.getAttribute('aria-checked') === 'true',
+          focusStrong: swFocus.getAttribute('aria-checked') === 'true',
+        };
+      }
+
+      function pushPrefs() {
+        var p = collectPrefs();
+        savePrefs(p);
+        applyPrefs(p);
+      }
+
+      function wireSwitch(el) {
+        el.setAttribute('tabindex', '0');
+        el.addEventListener('click', function () {
+          var on = el.getAttribute('aria-checked') === 'true';
+          el.setAttribute('aria-checked', on ? 'false' : 'true');
+          pushPrefs();
+        });
+        el.addEventListener('keydown', function (e) {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault();
+            el.click();
+          }
+        });
+      }
+
+      [swHigh, swInstant, swSounds, swSession, swTts, swFocus].forEach(wireSwitch);
+      [selScale, selFam, selLine].forEach(function (sel) {
+        sel.addEventListener('change', pushPrefs);
+      });
+
+      var initial = loadPrefs();
+      applyPrefs(initial);
+      syncFormFromPrefs(initial);
+
+      function setSuggestionsOpen(open) {
+        suggestionsPanel.classList.toggle('is-open', open);
+        toggleSuggestions.setAttribute('aria-expanded', open ? 'true' : 'false');
+        toggleChevron.textContent = open ? '▲' : '▼';
+        toggleLabel.textContent = open ? 'Ocultar sugestões' : 'Sugestões de perguntas';
+      }
+
+      toggleSuggestions.addEventListener('click', function () {
+        setSuggestionsOpen(!suggestionsPanel.classList.contains('is-open'));
+      });
+
+      settingsBtn.addEventListener('click', function () {
+        syncFormFromPrefs(loadPrefs());
+        settingsDialog.showModal();
+        settingsBtn.setAttribute('aria-expanded', 'true');
+        var firstFocus = settingsDialog.querySelector('.switch');
+        if (firstFocus) firstFocus.focus();
+      });
+      settingsDialog.addEventListener('close', function () {
+        settingsBtn.setAttribute('aria-expanded', 'false');
+        settingsBtn.focus();
+      });
+      settingsClose.addEventListener('click', function () {
+        settingsDialog.close();
+      });
+
+      function playNotifySound() {
+        var p = loadPrefs();
+        if (p.soundsOff) return;
+        /* Reservado para futuros alertas sonoros */
+      }
+
+      function ensureVoices(done) {
+        if (!window.speechSynthesis) return;
+        if (window.speechSynthesis.getVoices().length) {
+          done();
+          return;
+        }
+        window.speechSynthesis.addEventListener('voiceschanged', function once() {
+          window.speechSynthesis.removeEventListener('voiceschanged', once);
+          done();
+        });
+      }
+
+      function speakText(text) {
+        if (!window.speechSynthesis || !text) return;
+        var t = String(text).replace(/\s+/g, ' ').trim();
+        if (!t) return;
+        window.speechSynthesis.cancel();
+        var u = new SpeechSynthesisUtterance(t);
+        u.lang = 'pt-PT';
+        ensureVoices(function () {
+          var voices = window.speechSynthesis.getVoices();
+          var v = voices.find(function (x) {
+            return x.lang && x.lang.toLowerCase().indexOf('pt') === 0;
+          });
+          if (v) u.voice = v;
+          window.speechSynthesis.speak(u);
+        });
+      }
+
+      chatBody.addEventListener('click', function (e) {
+        var btn = e.target.closest('.tts-btn');
+        if (!btn || !chatBody.contains(btn)) return;
+        var wrap = btn.closest('.bubble-wrap');
+        var content = wrap && wrap.querySelector('.bubble .content');
+        if (content) speakText(content.textContent || '');
+      });
+
+      var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRec) {
+        micBtn.hidden = true;
+        micBtn.setAttribute('aria-hidden', 'true');
+      } else {
+        var rec = new SpeechRec();
+        /* BCP-47: Chrome no Windows por vezes trata melhor pt-PT; em falha o utilizador pode mudar no sistema. */
+        rec.lang = 'pt-PT';
+        rec.continuous = false;
+        /* Com false, alguns browsers só disparam um evento no fim e o texto pode não estar em results[0]. */
+        rec.interimResults = true;
+        rec.maxAlternatives = 1;
+
+        var micTextBefore = '';
+
+        function transcriptFromResults(results) {
+          var out = '';
+          for (var i = 0; i < results.length; i++) {
+            if (results[i] && results[i][0] && results[i][0].transcript) {
+              out += results[i][0].transcript;
+            }
+          }
+          return out.trim();
+        }
+
+        rec.onstart = function () {
+          micTextBefore = userInput.value.trim();
+        };
+
+        rec.onresult = function (e) {
+          /* Juntar todos os segmentos (Chrome muitas vezes não coloca tudo em results[0]). */
+          var full = transcriptFromResults(e.results);
+          if (!full) {
+            return;
+          }
+          if (micTextBefore) {
+            userInput.value = (micTextBefore + ' ' + full).trim();
+          } else {
+            userInput.value = full;
+          }
+        };
+
+        rec.onerror = function (ev) {
+          var code = ev && ev.error ? ev.error : '';
+          if (code === 'aborted') {
+            return;
+          }
+          micBtn.classList.remove('is-listening');
+          if (code === 'no-speech') {
+            showStatusBanner('warn', {
+              title: 'Não foi detetada voz',
+              body: 'Tenta falar mais perto do microfone ou verifica se o microfone certo está selecionado nas definições do Windows.',
+            });
+          } else if (code === 'not-allowed' || code === 'service-not-allowed') {
+            showStatusBanner('warn', {
+              title: 'Microfone bloqueado',
+              body: 'O browser não tem permissão para usar o microfone. Permite o acesso nas definições do site.',
+            });
+          }
+        };
+
+        rec.onend = function () {
+          micBtn.classList.remove('is-listening');
+        };
+
+        micBtn.addEventListener('click', function () {
+          if (micBtn.classList.contains('is-listening')) {
+            try {
+              rec.stop();
+            } catch (err1) {}
+            micBtn.classList.remove('is-listening');
+            return;
+          }
+          micBtn.classList.add('is-listening');
+          try {
+            rec.start();
+          } catch (err) {
+            if (err && err.name === 'InvalidStateError') {
+              try {
+                rec.stop();
+              } catch (err2) {}
+              window.setTimeout(function () {
+                try {
+                  rec.start();
+                } catch (err3) {
+                  micBtn.classList.remove('is-listening');
+                  showStatusBanner('warn', {
+                    title: 'Não foi possível iniciar o microfone',
+                    body:
+                      'O reconhecimento de voz já estava ativo. Fecha outras abas que usem o microfone e tenta de novo.',
+                  });
+                }
+              }, 200);
+            } else {
+              micBtn.classList.remove('is-listening');
+              showStatusBanner('warn', {
+                title: 'Não foi possível iniciar o microfone',
+                body:
+                  err && err.message
+                    ? String(err.message)
+                    : 'Tenta fechar outras apps que usem o microfone e carrega outra vez.',
+              });
+            }
+          }
+        });
+      }
 
       function getSessionId() {
         try {
-          const key = 'montesbot_session_id';
-          let id = window.localStorage.getItem(key);
+          var key = 'montesbot_session_id';
+          var id = window.localStorage.getItem(key);
           if (!id) {
             if (window.crypto && window.crypto.randomUUID) {
               id = window.crypto.randomUUID();
@@ -377,88 +1420,284 @@
         }
       }
 
-      const sessionId = getSessionId();
+      var sessionId = getSessionId();
 
       function scrollToBottom() {
         chatBody.scrollTop = chatBody.scrollHeight;
       }
 
-      function showError(message) {
-        errorBanner.textContent = message;
-        errorBanner.classList.add('visible');
+      function clearStatusBanner() {
+        statusBanner.classList.remove(
+          'visible',
+          'status-banner--offline',
+          'status-banner--warn',
+          'status-banner--error'
+        );
+        statusBannerSteps.innerHTML = '';
+        statusBannerSteps.hidden = true;
       }
 
-      function clearError() {
-        errorBanner.classList.remove('visible');
+      function isNetworkFailure(err) {
+        if (!err) return true;
+        if (err.name === 'AbortError') return false;
+        if (err.name === 'TypeError') return true;
+        var m = String(err.message || '').toLowerCase();
+        return (
+          m.indexOf('failed to fetch') >= 0 ||
+          m.indexOf('networkerror') >= 0 ||
+          m.indexOf('load failed') >= 0
+        );
       }
 
-      function addMessage(role, text, sources) {
-        const messageDiv = document.createElement('div');
+      async function checkApiReachable() {
+        var ctrl = new AbortController();
+        var t = window.setTimeout(function () {
+          ctrl.abort();
+        }, 8000);
+        try {
+          var r = await fetch(API_BASE + '/health', { method: 'GET', signal: ctrl.signal });
+          return r.ok;
+        } catch (e) {
+          return false;
+        } finally {
+          window.clearTimeout(t);
+        }
+      }
+
+      function showStatusBanner(variant, opts) {
+        clearStatusBanner();
+        statusBanner.classList.add('status-banner--' + variant, 'visible');
+        if (variant === 'offline') {
+          statusBannerIcon.textContent = '📡';
+        } else if (variant === 'warn') {
+          statusBannerIcon.textContent = '⏱';
+        } else {
+          statusBannerIcon.textContent = '⚠️';
+        }
+        statusBannerTitle.textContent = opts.title;
+        statusBannerBody.textContent = opts.body;
+        if (opts.steps && opts.steps.length) {
+          opts.steps.forEach(function (line) {
+            var li = document.createElement('li');
+            li.textContent = line;
+            statusBannerSteps.appendChild(li);
+          });
+          statusBannerSteps.hidden = false;
+        } else {
+          statusBannerSteps.hidden = true;
+        }
+        playNotifySound();
+      }
+
+      function showOfflineFromNetwork() {
+        var fromFile = window.location.protocol === 'file:';
+        var steps = [
+          'Confirma que o servidor da API está a correr (por exemplo, na pasta do projeto: ativa o venv e corre o Uvicorn na porta 8000).',
+          fromFile
+            ? 'Estás a abrir o HTML em ficheiro local: o browser fala com ' +
+                API_BASE +
+                '. Garante que a API está nesse endereço ou serve o frontend pelo mesmo host que a API.'
+            : 'Se abriste só o frontend, confirma que a API está no mesmo endereço (' +
+                API_BASE +
+                ') e que não há bloqueio de firewall ou proxy.',
+          'Tenta o botão «Verificar ligação» abaixo para testar o endpoint /health.',
+        ];
+        showStatusBanner('offline', {
+          title: 'Sem ligação ao servidor',
+          body:
+            'O MontesBot não conseguiu contactar a API. Isto costuma acontecer quando o servidor está parado, o endereço está errado ou há um problema de rede no teu computador.',
+          steps: steps,
+        });
+      }
+
+      statusBannerRetry.addEventListener('click', async function () {
+        statusBannerRetry.disabled = true;
+        statusBannerRetry.textContent = 'A verificar…';
+        var ok = await checkApiReachable();
+        statusBannerRetry.disabled = false;
+        statusBannerRetry.textContent = 'Verificar ligação';
+        if (ok) {
+          clearStatusBanner();
+        } else {
+          statusBannerBody.textContent =
+            'Ainda não há resposta do servidor em ' +
+            API_BASE +
+            '. Confirma que o processo da API está a correr e que a porta está correta.';
+        }
+      });
+
+      statusBannerDismiss.addEventListener('click', function () {
+        clearStatusBanner();
+      });
+
+      window.addEventListener('offline', function () {
+        showStatusBanner('offline', {
+          title: 'Sem ligação à Internet',
+          body: 'O browser reporta que estás offline. Algumas ligações ao servidor podem falhar até recuperares a rede.',
+          steps: [
+            'Liga-te à rede Wi‑Fi ou dados móveis e usa «Verificar ligação» quando estiveres pronto.',
+          ],
+        });
+      });
+
+      function addMessage(role, text) {
+        var messageDiv = document.createElement('div');
         messageDiv.className = 'message ' + (role === 'bot' ? 'bot' : 'user');
 
-        const bubble = document.createElement('div');
+        var wrap = document.createElement('div');
+        wrap.className = 'bubble-wrap';
+
+        var bubble = document.createElement('div');
         bubble.className = 'bubble';
 
-        const title = document.createElement('strong');
+        var title = document.createElement('strong');
         title.textContent = role === 'bot' ? 'MontesBot' : 'Tu';
         bubble.appendChild(title);
 
-        const content = document.createElement('div');
+        var content = document.createElement('div');
         content.className = 'content';
         content.textContent = text;
         bubble.appendChild(content);
 
-        // Fontes (URLs) são úteis para debug, mas não mostramos ao utilizador final
-        // para manter a interface mais limpa.
+        wrap.appendChild(bubble);
 
-        messageDiv.appendChild(bubble);
+        if (role === 'bot') {
+          var tools = document.createElement('div');
+          tools.className = 'message-tools';
+          tools.setAttribute('role', 'group');
+          tools.setAttribute('aria-label', 'Ações desta resposta');
+          var ttsBtn = document.createElement('button');
+          ttsBtn.type = 'button';
+          ttsBtn.className = 'tool-btn tts-btn';
+          ttsBtn.setAttribute('aria-label', 'Ler esta resposta em voz alta');
+          ttsBtn.textContent = 'Ler em voz alta';
+          tools.appendChild(ttsBtn);
+          wrap.appendChild(tools);
+        }
+
+        messageDiv.appendChild(wrap);
         chatBody.appendChild(messageDiv);
         scrollToBottom();
+
+        if (role === 'bot' && loadPrefs().ttsAuto) {
+          speakText(text);
+        }
       }
 
       async function sendMessage() {
-        const text = userInput.value.trim();
+        var text = userInput.value.trim();
         if (!text) {
-          showError('A mensagem não pode estar vazia.');
+          showStatusBanner('warn', {
+            title: 'Mensagem vazia',
+            body: 'Escreve uma pergunta na caixa de texto antes de enviar.',
+          });
           return;
         }
 
-        clearError();
+        clearStatusBanner();
         userInput.value = '';
         addMessage('user', text);
-        typingIndicator.classList.add('visible');
+
+        var instant = document.documentElement.hasAttribute('data-instant-messages');
+        if (!instant) {
+          typingIndicator.classList.add('visible');
+        }
+        typingIndicator.setAttribute('aria-hidden', instant ? 'true' : 'false');
+        chatBody.setAttribute('aria-busy', 'true');
         sendBtn.disabled = true;
 
         try {
-          const response = await fetch(API_BASE + '/chat', {
+          var response = await fetch(API_BASE + '/chat', {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
             },
             body: JSON.stringify({
               session_id: sessionId,
-              message: text
-            })
+              message: text,
+            }),
           });
 
           if (!response.ok) {
+            var apiDetail = '';
+            try {
+              var errJson = await response.json();
+              if (typeof errJson.detail === 'string') {
+                apiDetail = errJson.detail.slice(0, 400);
+              }
+            } catch (ignore) {}
+
             if (response.status === 429) {
-              showError('Estás a enviar mensagens demasiado rápido. Espera uns segundos e tenta de novo.');
+              showStatusBanner('warn', {
+                title: 'Muitas mensagens seguidas',
+                body:
+                  'O servidor limitou pedidos neste momento. Espera alguns segundos e envia outra vez. Se o problema continuar, recarrega a página.',
+              });
             } else if (response.status >= 500) {
-              showError('O servidor está com dificuldade em responder. Tenta novamente dentro de alguns instantes.');
+              showStatusBanner('error', {
+                title: 'Servidor temporariamente indisponível',
+                body:
+                  'A API respondeu com um erro interno (código ' +
+                  response.status +
+                  '). Não é um problema da tua mensagem em si — tenta de novo dentro de momentos.',
+                steps: apiDetail ? ['Detalhe devolvido pela API: ' + apiDetail] : undefined,
+              });
+            } else if (response.status === 422) {
+              showStatusBanner('warn', {
+                title: 'Pedido não aceite',
+                body:
+                  apiDetail ||
+                  'Os dados enviados não passaram na validação. Verifica o tamanho ou o formato da mensagem e tenta de novo.',
+              });
+            } else if (response.status === 401 || response.status === 403) {
+              showStatusBanner('error', {
+                title: 'Acesso negado',
+                body:
+                  apiDetail ||
+                  'A API recusou este pedido (autenticação ou permissões). Quem gere o servidor deve confirmar chaves e configuração.',
+              });
             } else {
-              showError('Não foi possível processar a tua mensagem. Verifica o texto e tenta novamente.');
+              showStatusBanner('error', {
+                title: 'Não foi possível concluir o pedido',
+                body:
+                  'O servidor respondeu com o código HTTP ' +
+                  response.status +
+                  '. Podes tentar de novo; se persistir, verifica os registos do servidor.',
+                steps: apiDetail ? [apiDetail] : undefined,
+              });
             }
             return;
           }
 
-          const data = await response.json();
-          addMessage('bot', data.response, data.sources);
+          var data = await response.json();
+          addMessage('bot', data.response);
         } catch (err) {
           console.error(err);
-          showError('Não foi possível ligar ao servidor. Verifica a tua ligação à Internet.');
+          if (!navigator.onLine) {
+            showStatusBanner('offline', {
+              title: 'Sem ligação à Internet',
+              body: 'O browser indica que estás offline. Liga-te à rede e tenta enviar a mensagem de novo.',
+              steps: [
+                'Depois de recuperares a rede, usa «Verificar ligação» para testar a API.',
+              ],
+            });
+          } else if (isNetworkFailure(err)) {
+            showOfflineFromNetwork();
+          } else {
+            showStatusBanner('error', {
+              title: 'Erro inesperado',
+              body:
+                'Ocorreu um problema ao enviar a mensagem que não parece ser só de rede. Recarrega a página ou tenta outra vez.',
+              steps:
+                err && err.message
+                  ? ['Detalhe técnico: ' + String(err.message).slice(0, 200)]
+                  : undefined,
+            });
+          }
         } finally {
           typingIndicator.classList.remove('visible');
+          typingIndicator.setAttribute('aria-hidden', 'true');
+          chatBody.setAttribute('aria-busy', 'false');
           sendBtn.disabled = false;
           userInput.focus();
         }
@@ -476,8 +1715,25 @@
       document.querySelectorAll('.suggestion-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
           userInput.value = btn.textContent.trim();
+          setSuggestionsOpen(false);
           sendMessage();
         });
+      });
+
+      checkApiReachable().then(function (ok) {
+        if (!ok) {
+          if (!navigator.onLine) {
+            showStatusBanner('offline', {
+              title: 'Sem ligação à Internet',
+              body: 'O browser indica que estás offline. Liga-te à rede antes de usar o MontesBot.',
+              steps: [
+                'Quando a rede estiver estável, usa «Verificar ligação» para testar a API.',
+              ],
+            });
+          } else {
+            showOfflineFromNetwork();
+          }
+        }
       });
     })();
   </script>
