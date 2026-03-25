@@ -10,6 +10,12 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.language_models import BaseChatModel
 
+from bot.message_sanitize import (
+    get_chat_max_message_chars,
+    get_llm_request_timeout_sec,
+    sanitize_chat_message,
+)
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -243,12 +249,15 @@ def _get_llm():
         temperature = float(os.getenv("LLM_TEMPERATURE") or "0.3")
         max_tokens = int(os.getenv("LLM_MAX_TOKENS") or "800")
 
+        timeout_sec = get_llm_request_timeout_sec()
+
         LOGGER.info(
-            "Using LLM provider=%s model=%s temperature=%s max_tokens=%s",
+            "Using LLM provider=%s model=%s temperature=%s max_tokens=%s request_timeout_sec=%s",
             provider,
             model,
             temperature,
             max_tokens,
+            timeout_sec,
         )
 
         if provider == "groq":
@@ -259,6 +268,7 @@ def _get_llm():
                 api_key=os.getenv("GROQ_API_KEY"),
                 temperature=temperature,
                 max_tokens=max_tokens,
+                request_timeout=timeout_sec,
             )
         elif provider in {"google_genai"}:
             from langchain_google_genai import ChatGoogleGenerativeAI
@@ -270,6 +280,7 @@ def _get_llm():
                 temperature=temperature,
                 max_output_tokens=max_tokens,
                 google_api_key=google_api_key,
+                timeout=timeout_sec,
             )
         else:
             # Generic fallback via LangChain's provider registry.
@@ -281,6 +292,7 @@ def _get_llm():
                 model_provider=provider,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                request_timeout=timeout_sec,
             )
 
         return _LLM
@@ -382,6 +394,15 @@ def get_answer(session_id: str, user_message: str) -> Tuple[str, List[Dict[str, 
     - Para cada pergunta, seleciona secções relevantes da knowledge base local
       e injeta-as como contexto para o LLM.
     """
+    user_message = sanitize_chat_message(user_message)
+    if not user_message:
+        raise ValueError("A mensagem não pode estar vazia.")
+    max_chars = get_chat_max_message_chars()
+    if len(user_message) > max_chars:
+        raise ValueError(
+            f"A mensagem excede o limite de {max_chars} caracteres."
+        )
+
     _update_history(session_id, "user", user_message)
     _append_message(session_id, HumanMessage(content=user_message))
 

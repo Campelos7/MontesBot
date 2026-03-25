@@ -9,6 +9,10 @@
 *.user
 *.userosscache
 *.sln.docstates
+# Segredos e ambiente local (chaves API, etc.)
+.env
+.env.*
+!.env.example
 *.env
 
 # User-specific files (MonoDevelop/Xamarin Studio)
@@ -418,3 +422,10 @@ FodyWeavers.xsd
 *.msp
 
 venv/
+
+# MontesBot — dados gerados localmente, caches e ferramentas
+chroma_db/
+.aider*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

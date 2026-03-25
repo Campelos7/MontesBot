@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Deque, Dict, List
 from uuid import uuid4
 
-from dotenv import load_dotenv
 from fastapi import (
     BackgroundTasks,
     FastAPI,
@@ -16,9 +15,18 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from bot.message_sanitize import (
+    get_chat_max_message_chars,
+    sanitize_chat_message,
+)
 from bot.rag import get_answer
+from project_env import load_project_env
+
+load_project_env()
+
+CHAT_MAX_MESSAGE_CHARS = get_chat_max_message_chars()
 from database.indexer import get_document_count, get_vector_store
 from scraper.scraper import get_last_scrape_date, run_scraper_and_index, start_scheduler
 
@@ -34,7 +42,18 @@ class ChatRequest(BaseModel):
         default=None,
         description="Unique session identifier for the user. If omitted, the server generates one.",
     )
-    message: str = Field(..., description="User message in natural language.")
+    message: str = Field(
+        ...,
+        description="User message in natural language.",
+        max_length=CHAT_MAX_MESSAGE_CHARS,
+    )
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def _sanitize_message(cls, value: object) -> object:
+        if isinstance(value, str):
+            return sanitize_chat_message(value)
+        return value
 
 
 class ChatResponse(BaseModel):
@@ -105,9 +124,7 @@ def _check_rate_limit(session_id: str) -> None:
 
 def get_app() -> FastAPI:
     """Create and configure the FastAPI application instance."""
-    # Load environment variables from .env at application startup so that
-    # API keys and configuration are available to all modules.
-    load_dotenv()
+    load_project_env()
 
     app = FastAPI(title="MontesBot API", version="1.0.0")
 
@@ -211,6 +228,8 @@ def get_app() -> FastAPI:
             return ChatResponse(response=answer, sources=sources, session_id=session_id)
         except HTTPException:
             raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # noqa: BLE001
             LOGGER.error("Unexpected error in /chat: %s", exc)
             raise HTTPException(
