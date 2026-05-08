@@ -3,7 +3,7 @@ Carrega o ficheiro .env na raiz do repositório.
 
 Sem isto, `load_dotenv()` sem caminho só procura o .env no diretório de trabalho
 (current working directory). Se o utilizador corre o Uvicorn a partir de outra pasta,
-as variáveis (GROQ_API_KEY, etc.) não são carregadas e o Groq devolve 401.
+as variáveis (OLLAMA_MODEL, tokens internos, etc.) podem não ser carregadas.
 """
 
 from pathlib import Path

@@ -5,20 +5,19 @@ import re
 import unicodedata
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 
+import ollama
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.language_models import BaseChatModel
 
 from bot.message_sanitize import (
     get_chat_max_message_chars,
-    get_llm_request_timeout_sec,
     sanitize_chat_message,
 )
 
 
 LOGGER = logging.getLogger(__name__)
+FALLBACK_REPLY = "Não tenho essa informação. Contacta os Serviços Académicos: 259 350 049"
 
 
 SYSTEM_PROMPT = """
@@ -124,21 +123,6 @@ def kb_has_section_beyond_sobre_utad(kb_sections: Dict) -> bool:
     `NAVIGATION_SCOPE_REPLY` (sem chamar o LLM).
     """
     return any(k != "sobre_utad" for k in (kb_sections or {}).keys())
-
-
-# Wrappers para a lógica de RAG.
-# A test-suite faz monkeypatch a estes símbolos.
-def get_document_count() -> int:
-    from database.indexer import get_document_count as _get_document_count
-
-    return _get_document_count()
-
-
-def vector_search(query: str, n_results: int = 5):
-    from database.indexer import search as _search
-
-    return _search(query, n_results=n_results)
-
 
 
 # ---------------------------------------------------------------------------
@@ -611,89 +595,9 @@ def _answer_from_knowledge_base(user_message: str, kb_sections: Dict) -> Optiona
 # ---------------------------------------------------------------------------
 
 _SESSION_HISTORY: Dict[str, List[Tuple[str, str]]] = {}
-_SESSION_MESSAGE_HISTORY: Dict[str, List[BaseMessage]] = {}
-_LLM: Optional[BaseChatModel] = None
+session_histories: Dict[str, List[Dict[str, str]]] = {}
+_SESSION_CONTEXT: Dict[str, Dict[str, Any]] = {}
 _MAX_HISTORY_TURNS = 24
-
-
-def _get_llm():
-    """
-    Build the LLM used by MontesBot based on environment variables.
-    """
-    global _LLM
-    if _LLM is not None:
-        return _LLM
-
-    load_dotenv(override=True)
-    try:
-        provider_raw = (os.getenv("LLM_PROVIDER") or "groq").strip().lower()
-        # Friendly aliases so .env can use simpler names.
-        provider = {
-            "google": "google_genai",
-            "genai": "google_genai",
-            "google-genai": "google_genai",
-            "google_genai": "google_genai",
-            "gemini": "google_genai",
-            "groq": "groq",
-        }.get(provider_raw, provider_raw)
-
-        model = (os.getenv("LLM_MODEL") or "").strip() or (
-            "llama-3.1-8b-instant" if provider == "groq" else "gemini-2.0-flash"
-        )
-
-        temperature = float(os.getenv("LLM_TEMPERATURE") or "0.3")
-        max_tokens = int(os.getenv("LLM_MAX_TOKENS") or "800")
-
-        timeout_sec = get_llm_request_timeout_sec()
-
-        LOGGER.info(
-            "Using LLM provider=%s model=%s temperature=%s max_tokens=%s request_timeout_sec=%s",
-            provider,
-            model,
-            temperature,
-            max_tokens,
-            timeout_sec,
-        )
-
-        if provider == "groq":
-            from langchain_groq import ChatGroq
-
-            _LLM = ChatGroq(
-                model=model,
-                api_key=os.getenv("GROQ_API_KEY"),
-                temperature=temperature,
-                max_tokens=max_tokens,
-                request_timeout=timeout_sec,
-            )
-        elif provider in {"google_genai"}:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-
-            # Pass key explicitly (supports GEMINI_API_KEY and GOOGLE_API_KEY).
-            google_api_key = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip() or None
-            _LLM = ChatGoogleGenerativeAI(
-                model=model,
-                temperature=temperature,
-                max_output_tokens=max_tokens,
-                google_api_key=google_api_key,
-                timeout=timeout_sec,
-            )
-        else:
-            # Generic fallback via LangChain's provider registry.
-            # Requires the relevant langchain-<provider> package to be installed.
-            from langchain.chat_models import init_chat_model
-
-            _LLM = init_chat_model(
-                model=model,
-                model_provider=provider,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                request_timeout=timeout_sec,
-            )
-
-        return _LLM
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.error("Failed to initialize LLM: %s", exc)
-        raise
 
 
 def _update_history(session_id: str, role: str, content: str) -> None:
@@ -703,14 +607,6 @@ def _update_history(session_id: str, role: str, content: str) -> None:
     _SESSION_HISTORY[session_id].append((role, content))
     if len(_SESSION_HISTORY[session_id]) > _MAX_HISTORY_TURNS:
         _SESSION_HISTORY[session_id] = _SESSION_HISTORY[session_id][-_MAX_HISTORY_TURNS:]
-
-
-def _append_message(session_id: str, message: BaseMessage) -> None:
-    """Store structured chat history (HumanMessage / AIMessage) per sessão."""
-    history = _SESSION_MESSAGE_HISTORY.setdefault(session_id, [])
-    history.append(message)
-    if len(history) > _MAX_HISTORY_TURNS:
-        _SESSION_MESSAGE_HISTORY[session_id] = history[-_MAX_HISTORY_TURNS:]
 
 
 def _last_user_message_before_current(session_id: str) -> str:
@@ -776,6 +672,195 @@ def _build_retrieval_query(session_id: str, user_message: str) -> str:
     return f"{previous}\nPergunta de seguimento: {msg}"
 
 
+def _get_all_courses() -> List[str]:
+    kb = _load_knowledge_base()
+    cursos = kb.get("cursos", {})
+    return (
+        cursos.get("licenciaturas", [])
+        + cursos.get("licenciaturas_sem_vagas_2025_2026", [])
+        + cursos.get("novos_cursos_2026_2027", [])
+    )
+
+
+def _extract_course_from_message(user_message: str) -> Optional[str]:
+    msg_norm = _normalize_for_compare(user_message)
+    best: Optional[str] = None
+    best_len = 0
+    for course in _get_all_courses():
+        norm_course = _normalize_for_compare(course)
+        if norm_course and norm_course in msg_norm and len(norm_course) > best_len:
+            best = course
+            best_len = len(norm_course)
+    return best
+
+
+def _infer_intent_with_confidence(user_message: str) -> Tuple[str, float]:
+    msg_norm = _normalize_for_compare(user_message)
+    intent_scores: Dict[str, float] = {
+        "course_entry_grade": 0.0,
+        "candidaturas": 0.0,
+        "contactos": 0.0,
+        "propinas": 0.0,
+        "calendario": 0.0,
+        "cursos": 0.0,
+        "general": 0.1,
+    }
+
+    if any(k in msg_norm for k in ("media de entrada", "nota de entrada", "nota minima", "media minima")):
+        intent_scores["course_entry_grade"] += 1.0
+    if any(
+        k in msg_norm
+        for k in ("candidatura", "candidatar", "dges", "concurso nacional", "entrar na utad", "como entrar")
+    ):
+        intent_scores["candidaturas"] += 1.0
+    if any(k in msg_norm for k in ("servicos academicos", "contact", "telefone", "email")):
+        intent_scores["contactos"] += 0.9
+    if any(k in msg_norm for k in ("propina", "propinas", "isenc")):
+        intent_scores["propinas"] += 0.9
+    if any(k in msg_norm for k in ("semestre", "aulas", "exame", "epoca", "prazo")):
+        intent_scores["calendario"] += 0.9
+    if any(k in msg_norm for k in ("curso", "licenciatura", "mestrado", "doutoramento", "engenharia")):
+        intent_scores["cursos"] += 0.6
+
+    best_intent = max(intent_scores, key=intent_scores.get)
+    confidence = max(0.0, min(1.0, intent_scores[best_intent]))
+    return best_intent, confidence
+
+
+def _extract_entities(user_message: str) -> List[Dict[str, str]]:
+    entities: List[Dict[str, str]] = []
+    course = _extract_course_from_message(user_message)
+    if course:
+        entities.append({"type": "course", "value": course})
+
+    msg_norm = _normalize_for_compare(user_message)
+    service_markers = {
+        "servicos academicos": "Serviços Académicos",
+        "acao social": "Serviços de Ação Social",
+        "biblioteca": "Biblioteca",
+    }
+    for marker, name in service_markers.items():
+        if marker in msg_norm:
+            entities.append({"type": "service", "value": name})
+
+    if any(k in msg_norm for k in ("1 semestre", "primeiro semestre", "1º semestre")):
+        entities.append({"type": "semester", "value": "1_semestre"})
+    if any(k in msg_norm for k in ("2 semestre", "segundo semestre", "2º semestre")):
+        entities.append({"type": "semester", "value": "2_semestre"})
+
+    return entities
+
+
+def _looks_like_contextual_followup(user_message: str) -> bool:
+    msg_norm = _normalize_for_compare(user_message)
+    return any(
+        phrase in msg_norm
+        for phrase in (
+            "curso que referi",
+            "pergunta anterior",
+            "que referi",
+            "que mencionei",
+            "sobre esse curso",
+            "desse curso",
+            "na conversa anterior",
+        )
+    )
+
+
+def _resolve_message_with_context(session_context: Dict[str, Any], user_message: str) -> str:
+    if not _looks_like_contextual_followup(user_message):
+        return user_message
+
+    last_course = session_context.get("last_course_mentioned")
+    if not last_course:
+        return user_message
+    return f"{user_message}\nCurso em contexto: {last_course}"
+
+
+def _log_request_diagnostics(
+    session_id: str,
+    detected_intent: str,
+    confidence: float,
+    entities: List[Dict[str, str]],
+    used_context: bool,
+) -> None:
+    LOGGER.info(
+        "chat_diagnostics session_id=%s intent=%s confidence=%.2f used_context=%s entities=%s",
+        session_id,
+        detected_intent,
+        confidence,
+        used_context,
+        entities,
+    )
+
+
+def _answer_candidaturas() -> Optional[str]:
+    kb = _load_knowledge_base()
+    c = kb.get("candidaturas", {})
+    portal = c.get("portal_nacional")
+    desc = c.get("descricao")
+    docs = c.get("documentos_gerais", []) or []
+    if not portal and not desc:
+        return None
+
+    lines: List[str] = []
+    if portal:
+        lines.append(f"As candidaturas são feitas no portal nacional DGES: {portal}.")
+    if desc:
+        lines.append(str(desc) + ".")
+    if docs:
+        lines.append("Documentos gerais: " + "; ".join(docs[:3]) + ".")
+    return " ".join(lines)
+
+
+def _answer_entry_grade_with_context(last_course: Optional[str]) -> str:
+    if last_course:
+        return (
+            f"Não tenho a média de entrada atualizada para {last_course}. "
+            "Confirma no portal DGES e, para apoio, contacta os Serviços Académicos: "
+            "259 350 049 | sautad@utad.pt."
+        )
+    return (
+        "Não tenho a média de entrada atualizada aqui. "
+        "Diz-me o curso para te orientar melhor, ou confirma no portal DGES. "
+        "Também podes contactar os Serviços Académicos: 259 350 049 | sautad@utad.pt."
+    )
+
+
+def _direct_answer_for_intent(intent: str, resolved_message: str) -> Optional[str]:
+    if intent == "calendario":
+        return _answer_from_knowledge_base(resolved_message, {"calendario_2025_2026": _load_knowledge_base().get("calendario_2025_2026", {})})
+    if intent == "contactos":
+        return _answer_from_knowledge_base(resolved_message, {"contactos": _load_knowledge_base().get("contactos", {})})
+    if intent == "propinas":
+        return _answer_from_knowledge_base(resolved_message, {"propinas": _load_knowledge_base().get("propinas", {})})
+    return None
+
+
+def _enforce_style_rules(reply: str) -> str:
+    text = (reply or "").strip()
+    if not text:
+        return FALLBACK_REPLY
+
+    # Forçar tratamento informal PT-PT.
+    text = re.sub(r"\bvocê\b", "tu", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bse tiver\b", "se tiveres", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bnão hesite\b", "não hesites", text, flags=re.IGNORECASE)
+
+    # Remover trechos motivacionais genéricos que não respondem ao pedido.
+    banned_phrases = (
+        "parabéns pela sua decisão",
+        "boa sorte nos seus estudos",
+        "excelente reputação",
+        "professores experientes",
+    )
+    lowered = text.lower()
+    if any(p in lowered for p in banned_phrases):
+        return FALLBACK_REPLY
+
+    return text
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -788,150 +873,141 @@ def get_answer(session_id: str, user_message: str) -> Tuple[str, List[Dict[str, 
     - Para cada pergunta, seleciona secções relevantes da knowledge base local
       e injeta-as como contexto para o LLM.
     """
-    user_message = sanitize_chat_message(user_message)
-    if not user_message:
+    load_dotenv(override=True)
+    message = sanitize_chat_message(user_message)
+    if not message:
         raise ValueError("A mensagem não pode estar vazia.")
     max_chars = get_chat_max_message_chars()
-    if len(user_message) > max_chars:
+    if len(message) > max_chars:
         raise ValueError(f"A mensagem excede o limite de {max_chars} caracteres.")
+    _update_history(session_id, "user", message)
 
-    _update_history(session_id, "user", user_message)
-    _append_message(session_id, HumanMessage(content=user_message))
+    # Load skill.md as context (fallback for case-sensitive environments).
+    skill_path = Path("skill.md")
+    if not skill_path.is_file():
+        skill_path = Path("Skill.md")
 
-    # 1) Curto-circuito para perguntas de opinião (sem LLM).
-    if is_opinion_or_subjective_question(user_message):
-        answer = (
-            "Não consigo dar a minha opinião. "
-            "Posso, no entanto, ajudar-te com informação verificável sobre a UTAD."
-        )
-        _update_history(session_id, "assistant", answer)
-        _append_message(session_id, AIMessage(content=answer))
-        return answer, []
+    skill_context = ""
+    if skill_path.is_file():
+        with open(skill_path, "r", encoding="utf-8") as f:
+            skill_context = f.read()
+    else:
+        LOGGER.warning("Skill file not found: expected skill.md or Skill.md")
 
-    retrieval_query = _build_retrieval_query(session_id, user_message)
+    if session_id not in session_histories:
+        session_histories[session_id] = []
+    session_context = _SESSION_CONTEXT.setdefault(
+        session_id,
+        {
+            "last_course_mentioned": None,
+            "last_intent": None,
+            "last_topic": None,
+            "last_entities": [],
+        },
+    )
 
-    # 2) Para respostas locais (knowledge_base.json), NÃO usemos uma query "composta"
-    # com histórico; isso evita que perguntas curtas de seguimento (ex: "Como contactar...")
-    # acionem a secção errada (ex: calendário) por palavras da pergunta anterior.
-    kb_sections = _select_kb_sections(user_message)
-    if not kb_has_section_beyond_sobre_utad(kb_sections):
-        if looks_like_basic_utad_identity_question(user_message):
-            local_answer = _answer_from_knowledge_base(user_message, kb_sections)
-            if local_answer:
-                sources: List[Dict[str, str]] = [
-                    {
-                        "source_url": "https://www.utad.pt",
-                        "title": "Knowledge Base UTAD",
-                        "category": "KnowledgeBase",
-                    }
-                ]
-                _update_history(session_id, "assistant", local_answer)
-                _append_message(session_id, AIMessage(content=local_answer))
-                return local_answer, sources
+    history = session_histories[session_id]
+    detected_course = _extract_course_from_message(message)
+    if detected_course:
+        session_context["last_course_mentioned"] = detected_course
 
-        answer = NAVIGATION_SCOPE_REPLY
-        _update_history(session_id, "assistant", answer)
-        _append_message(session_id, AIMessage(content=answer))
-        return answer, []
+    resolved_message = _resolve_message_with_context(session_context, message)
+    detected_intent, intent_confidence = _infer_intent_with_confidence(resolved_message)
+    entities = _extract_entities(resolved_message)
+    if entities:
+        session_context["last_entities"] = entities
+    session_context["last_intent"] = detected_intent
+    session_context["last_topic"] = detected_intent
+    _log_request_diagnostics(
+        session_id=session_id,
+        detected_intent=detected_intent,
+        confidence=intent_confidence,
+        entities=entities,
+        used_context=resolved_message != message,
+    )
 
-    # 3) Tentar resposta direta via `knowledge_base.json` (sem depender do LLM).
-    local_answer = _answer_from_knowledge_base(user_message, kb_sections)
+    kb_sections = _select_kb_sections(resolved_message)
+
+    # Router factual: preferir respostas determinísticas para reduzir alucinação.
+    if detected_intent == "candidaturas":
+        direct = _answer_candidaturas()
+        if direct:
+            reply = direct
+            _update_history(session_id, "assistant", reply)
+            history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": reply})
+            if len(history) > _MAX_HISTORY_TURNS * 2:
+                session_histories[session_id] = history[-(_MAX_HISTORY_TURNS * 2):]
+            return reply, [{"source_url": "local://skill.md", "title": "Skill.md", "category": "LocalKnowledge"}]
+
+    if detected_intent == "course_entry_grade":
+        reply = _answer_entry_grade_with_context(session_context.get("last_course_mentioned"))
+        _update_history(session_id, "assistant", reply)
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": reply})
+        if len(history) > _MAX_HISTORY_TURNS * 2:
+            session_histories[session_id] = history[-(_MAX_HISTORY_TURNS * 2):]
+        return reply, [{"source_url": "local://skill.md", "title": "Skill.md", "category": "LocalKnowledge"}]
+
+    direct_by_intent = _direct_answer_for_intent(detected_intent, resolved_message)
+    if direct_by_intent:
+        reply = direct_by_intent
+        _update_history(session_id, "assistant", reply)
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": reply})
+        if len(history) > _MAX_HISTORY_TURNS * 2:
+            session_histories[session_id] = history[-(_MAX_HISTORY_TURNS * 2):]
+        return reply, [{"source_url": "local://skill.md", "title": "Skill.md", "category": "LocalKnowledge"}]
+
+    local_answer = _answer_from_knowledge_base(resolved_message, kb_sections)
     if local_answer:
-        sources: List[Dict[str, str]] = [
-            {
-                "source_url": "https://www.utad.pt",
-                "title": "Knowledge Base UTAD",
-                "category": "KnowledgeBase",
-            }
-        ]
-        _update_history(session_id, "assistant", local_answer)
-        _append_message(session_id, AIMessage(content=local_answer))
-        return local_answer, sources
+        reply = local_answer
+        _update_history(session_id, "assistant", reply)
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": reply})
+        if len(history) > _MAX_HISTORY_TURNS * 2:
+            session_histories[session_id] = history[-(_MAX_HISTORY_TURNS * 2):]
+        return reply, [{"source_url": "local://skill.md", "title": "Skill.md", "category": "LocalKnowledge"}]
 
-    # 4) Caso não esteja coberto pela KB: tentar RAG + LLM.
+    messages = [
+        {
+            "role": "system",
+            "content": f"""És o MontesBot, assistente virtual da UTAD.
+Responde SEMPRE em Português de Portugal.
+Usa APENAS a informação abaixo para responder.
+Se não encontrares a informação, diz:
+"{FALLBACK_REPLY}"
+
+--- INFORMAÇÃO UTAD ---
+{skill_context}
+--- FIM ---""",
+        }
+    ]
+    messages.extend(history)
+    messages.append({"role": "user", "content": resolved_message})
+
     try:
-        llm = _get_llm()
-
-        docs = []
-        try:
-            if get_document_count() > 0:
-                docs = vector_search(retrieval_query, n_results=5) or []
-        except Exception:  # noqa: BLE001
-            docs = []
-
-        rag_context = "\n\n".join(d.page_content for d in docs if getattr(d, "page_content", None))
-        rag_context = rag_context.strip()[:3500]
-
-        messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT.strip())]
-        history_msgs = _SESSION_MESSAGE_HISTORY.get(session_id, [])
-        messages.extend(history_msgs)
-
-        # Pre-check: se a pergunta é sobre existência de cursos, força validação.
-        course_check = _check_courses(retrieval_query)
-        course_instruction = ""
-        if course_check:
-            course_instruction = (
-                "\n\nRESULTADO DA VERIFICAÇÃO DE CURSOS (usa isto na tua resposta):\n"
-                f"{course_check}\n"
-                "Apresenta este resultado ao utilizador. Não alteres os ✅ e ❌."
-            )
-
-        context_kb_text = json.dumps(kb_sections, ensure_ascii=False, indent=2)
-
-        if rag_context:
-            rag_block = f"\n\nCONTEXT0 RAG (páginas da UTAD):\n{rag_context}\n"
-        else:
-            rag_block = ""
-
-        human_content = (
-            "Abaixo tens dados VERIFICADOS da UTAD (knowledge base oficial e/ou RAG):\n\n"
-            f"KNOWLEDGE_BASE:\n{context_kb_text}"
-            f"{rag_block}\n\n"
-            "Usa os dados acima para responder. "
-            "Dá a resposta logo na primeira frase, de forma direta."
-            f"{course_instruction}\n\n"
-            f"Pergunta do utilizador:\n{user_message}"
+        response = ollama.chat(
+            model=os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
+            messages=messages,
         )
-        messages.append(HumanMessage(content=human_content))
-
-        answer = llm.invoke(messages).content.strip()
-        if not answer:
-            answer = (
-                "Neste momento não te consigo dar essa informação específica. "
-                "Contacta os Serviços Académicos pelo 259 350 049 ou consulta utad.pt."
-            )
-
-        sources = []
-        for d in docs[:5]:
-            meta = getattr(d, "metadata", {}) or {}
-            sources.append(
-                {
-                    "source_url": meta.get("source_url", "https://www.utad.pt"),
-                    "title": meta.get("title", "Documento RAG"),
-                    "category": meta.get("category", "RAG"),
-                }
-            )
-        if not sources:
-            sources = [
-                {
-                    "source_url": "https://www.utad.pt",
-                    "title": "Knowledge Base UTAD",
-                    "category": "KnowledgeBase",
-                }
-            ]
-
-        _update_history(session_id, "assistant", answer)
-        _append_message(session_id, AIMessage(content=answer))
-        return answer, sources
-
+        reply = _enforce_style_rules(response.get("message", {}).get("content", ""))
     except Exception as exc:  # noqa: BLE001
         LOGGER.error("Error generating answer for session %s: %s", session_id, exc)
-        fallback = (
-            "Neste momento não consigo responder a essa pergunta. "
-            "Contacta os Serviços Académicos da UTAD pelo 259 350 049 ou "
-            "consulta utad.pt para informação atualizada."
-        )
-        _update_history(session_id, "assistant", fallback)
-        _append_message(session_id, AIMessage(content=fallback))
-        return fallback, []
+        reply = FALLBACK_REPLY
+
+    _update_history(session_id, "assistant", reply)
+    history.append({"role": "user", "content": message})
+    history.append({"role": "assistant", "content": reply})
+    if len(history) > _MAX_HISTORY_TURNS * 2:
+        session_histories[session_id] = history[-(_MAX_HISTORY_TURNS * 2):]
+
+    sources: List[Dict[str, str]] = [
+        {
+            "source_url": "local://skill.md",
+            "title": "Skill.md",
+            "category": "LocalKnowledge",
+        }
+    ]
+    return reply, sources
 

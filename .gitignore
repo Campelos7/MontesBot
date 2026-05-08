@@ -429,3 +429,4 @@ chroma_db/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+pytest-cache-files-*/

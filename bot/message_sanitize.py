@@ -20,7 +20,7 @@ def get_chat_max_message_chars() -> int:
 
 
 def get_llm_request_timeout_sec() -> float:
-    """Timeout HTTP para pedidos ao provedor LLM (Groq, Gemini, etc.)."""
+    """Timeout HTTP para pedidos ao provedor LLM configurado."""
     try:
         t = float(os.environ.get("LLM_REQUEST_TIMEOUT_SEC", "60"))
     except ValueError:

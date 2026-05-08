@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Falha com código de saída != 0 se o diff entre dois commits introduzir
-atribuições suspeitas de chaves de API (ex.: GROQ_API_KEY=valor real).
+atribuições suspeitas de segredos (API keys, tokens, etc.).
 
 Uso:
   python scripts/check_secrets_in_diff.py <base_sha> <head_sha>
@@ -15,15 +15,13 @@ import sys
 
 # Nomes de variáveis que não devem aparecer no diff com valores credenciais.
 SECRET_VAR_NAMES = (
-    "GROQ_API_KEY",
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "GEMINI_API_KEY",
-    "GOOGLE_API_KEY",
-    "AZURE_OPENAI_API_KEY",
+    "API_KEY",
     "HF_TOKEN",
     "HUGGINGFACE_HUB_TOKEN",
     "SCRAPE_ADMIN_TOKEN",
+    "SECRET_KEY",
+    "ACCESS_TOKEN",
+    "AUTH_TOKEN",
 )
 
 # Valores claramente placeholders (comparação case-insensitive).
@@ -55,9 +53,9 @@ _ASSIGN_PATTERNS = [
     ),
 ]
 
-# Chaves Groq reais começam por gsk_; padrão genérico longo após o nome da var.
-_GROQ_INLINE = re.compile(r"gsk_[a-zA-Z0-9]{20,}")
-_SK_OPENAI = re.compile(r"sk-(?:proj-)?[a-zA-Z0-9]{20,}")
+# Padrões comuns de segredos inline.
+_GENERIC_APIKEY = re.compile(r"\bapi[_-]?key\b.{0,20}[=:]\s*['\"]?[A-Za-z0-9_\-]{20,}")
+_GENERIC_TOKEN = re.compile(r"\b(token|secret)\b.{0,20}[=:]\s*['\"]?[A-Za-z0-9_\-]{20,}")
 
 
 def _is_placeholder(val: str) -> bool:
@@ -102,10 +100,10 @@ def _check_assignment_line(line: str) -> list[str]:
         if len(val) <= 6 and val.isalpha():
             continue
         problems.append(f"atribuição suspeita: {m.group('name')}=… (valor não é placeholder óbvio)")
-    if _GROQ_INLINE.search(work):
-        problems.append("possível chave Groq (prefixo gsk_) no diff")
-    if _SK_OPENAI.search(work) and "sk-xxx" not in work.lower():
-        problems.append("possível chave estilo OpenAI (sk-…) no diff")
+    if _GENERIC_APIKEY.search(work):
+        problems.append("possível API key no diff")
+    if _GENERIC_TOKEN.search(work):
+        problems.append("possível token/secret no diff")
     return problems
 
 
@@ -162,33 +160,12 @@ def _resolve_base_head(argv: list[str]) -> tuple[str, str]:
     return base, head
 
 
-_GROQ_STRICT = re.compile(
-    r"GROQ_API_KEY\s*=\s*(\S+)",
-    re.IGNORECASE,
-)
-
-
 def _collect_failures(added: list[str]) -> list[str]:
     by_line: dict[str, list[str]] = {}
     for raw in added:
         line_full = raw.rstrip()
         for msg in _check_assignment_line(line_full):
             by_line.setdefault(line_full, []).append(msg)
-
-    for raw in added:
-        line_full = raw.rstrip()
-        work = _strip_hash_comment(line_full)
-        m = _GROQ_STRICT.search(work)
-        if not m:
-            continue
-        val = m.group(1).strip().strip('"').strip("'")
-        if val.lower() == "tua_chave_aqui":
-            continue
-        if _is_placeholder(val):
-            continue
-        by_line.setdefault(line_full, []).append(
-            "GROQ_API_KEY com valor que não é o placeholder do .env.example"
-        )
 
     failures: list[str] = []
     for line, msgs in by_line.items():
@@ -216,7 +193,7 @@ def main() -> int:
 
     if failures:
         print(
-            "ERRO: o diff introduz possíveis segredos ou atribuições de GROQ_API_KEY não permitidas.\n",
+            "ERRO: o diff introduz possíveis segredos não permitidos.\n",
             file=sys.stderr,
         )
         print("\n".join(failures), file=sys.stderr)
