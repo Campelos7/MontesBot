@@ -165,7 +165,8 @@ _KEYWORD_ROUTES: List[Tuple[List[str], str]] = [
     (
         ["contacto", "contactar", "telefone", "email", "morada",
          "serviços académicos", "servicos academicos", "biblioteca",
-         "ação social", "acao social", "escola", "secretaria"],
+         "ação social", "acao social", "escola", "secretaria",
+         "ecav", "echs", "ecva", "ess"],
         "contactos",
     ),
     (
@@ -179,7 +180,8 @@ _KEYWORD_ROUTES: List[Tuple[List[str], str]] = [
     ),
     (
         ["residência", "residencia", "cantina", "desporto", "saúde", "saude",
-         "bar", "campus", "instalações", "instalacoes"],
+         "bar", "campus", "instalações", "instalacoes", "onde fica", "onde é",
+         "onde e", "localização", "prados"],
         "servicos_campus",
     ),
 ]
@@ -277,10 +279,23 @@ def _select_kb_sections(user_message: str) -> Dict:
         selected["sobre_utad"] = kb["sobre_utad"]
 
     lowered = user_message.lower()
+    lowered_norm = _strip_accents(lowered)
     for keywords, section_key in _KEYWORD_ROUTES:
         if any(kw in lowered for kw in keywords):
             if section_key in kb:
                 selected[section_key] = kb[section_key]
+
+    # Special handling: if the message mentions a school acronym like "ect",
+    # make sure we also pull in the contactos section even if no other
+    # contact keyword was present.
+    _school_acronyms = ("ecav", "echs", "ecva", "ess")
+    # "ect" needs word-boundary check to avoid false positives (e.g. "ect" in "select")
+    has_school_acronym = any(acr in lowered_norm for acr in _school_acronyms)
+    if not has_school_acronym:
+        # Check "ect" with word boundaries
+        has_school_acronym = bool(re.search(r'\bect\b', lowered_norm))
+    if has_school_acronym and "contactos" in kb:
+        selected["contactos"] = kb["contactos"]
 
     return selected
 
@@ -454,22 +469,29 @@ def _answer_from_knowledge_base(user_message: str, kb_sections: Dict) -> Optiona
         contactos = kb_sections.get("contactos", {})
         escolas = contactos.get("escolas", {})
 
+        is_location_q = any(k in msg_norm for k in ("onde fica", "onde e", "localizacao", "localiza", "morada", "situa"))
+
         # Escolas por sigla
+        def _school_reply(sigla: str) -> str:
+            e = escolas[sigla]
+            base = f"{e['nome']} ({sigla})"
+            if is_location_q:
+                return (
+                    f"{base} fica no campus da UTAD, Quinta de Prados, Vila Real. "
+                    f"Contacto: Telefone {e['telefone']} | Email {e['email']}."
+                )
+            return f"{base}: Telefone {e['telefone']} | Email {e['email']}."
+
         if "ecav" in msg_norm and "ECAV" in escolas:
-            e = escolas["ECAV"]
-            return f"{e['nome']}: Telefone {e['telefone']} | Email {e['email']}."
+            return _school_reply("ECAV")
         if "echs" in msg_norm and "ECHS" in escolas:
-            e = escolas["ECHS"]
-            return f"{e['nome']}: Telefone {e['telefone']} | Email {e['email']}."
-        if "ect" in msg_norm and "ECT" in escolas:
-            e = escolas["ECT"]
-            return f"{e['nome']}: Telefone {e['telefone']} | Email {e['email']}."
+            return _school_reply("ECHS")
+        if re.search(r'\bect\b', msg_norm) and "ECT" in escolas:
+            return _school_reply("ECT")
         if "ecva" in msg_norm and "ECVA" in escolas:
-            e = escolas["ECVA"]
-            return f"{e['nome']}: Telefone {e['telefone']} | Email {e['email']}."
+            return _school_reply("ECVA")
         if "ess" in msg_norm and "ESS" in escolas:
-            e = escolas["ESS"]
-            return f"{e['nome']}: Telefone {e['telefone']} | Email {e['email']}."
+            return _school_reply("ESS")
 
         # Serviços académicos
         if any(k in msg_norm for k in ("servicos academicos", "sautad", "matric", "certida", "equival")):
@@ -564,21 +586,32 @@ def _answer_from_knowledge_base(user_message: str, kb_sections: Dict) -> Optiona
     # -----------------------------------------------------------------------
     if "servicos_campus" in kb_sections:
         s = kb_sections.get("servicos_campus", {})
+        is_location_q = any(k in msg_norm for k in ("onde fica", "onde e", "localizacao", "localiza", "morada", "situa"))
+
         if "resid" in msg_norm:
             r = s.get("residencias", {})
             conta = r.get("contacto")
             if conta:
+                if is_location_q:
+                    return f"As residências ficam no campus da UTAD, Quinta de Prados, Vila Real. Contacto: {conta}"
                 return f"Residências: {conta}"
-        if any(k in msg_norm for k in ("cantina", "bar")):
+        if any(k in msg_norm for k in ("cantina", "bar", "prados")):
             c = s.get("cantina_e_bar", {})
             d = c.get("descricao")
             if d:
+                if is_location_q:
+                    return (
+                        f"A cantina fica no campus da UTAD, Quinta de Prados, Vila Real. "
+                        f"Para mais informações contacta os SAS: 259 309 920 | sasutad@utad.pt."
+                    )
                 return f"Cantina/Bar: {d}"
         if "desporto" in msg_norm:
             d = s.get("desporto", {}).get("website")
             if d:
+                if is_location_q:
+                    return f"As instalações desportivas ficam no campus da UTAD, Vila Real. Mais informação: {d}"
                 return f"Desporto: {d}"
-        if "saude" in msg_norm:
+        if any(k in msg_norm for k in ("saude", "mental")):
             m = s.get("saude_mental", {})
             website = m.get("website")
             desc = m.get("descricao")
@@ -586,6 +619,10 @@ def _answer_from_knowledge_base(user_message: str, kb_sections: Dict) -> Optiona
                 return f"Saúde mental: {desc} ({website})"
             if website:
                 return f"Saúde mental: {website}"
+
+        # Generic campus location question
+        if is_location_q:
+            return "O campus da UTAD fica na Quinta de Prados, 5000-801 Vila Real. Para mais informações: 259 350 000."
 
     return None
 
@@ -703,6 +740,7 @@ def _infer_intent_with_confidence(user_message: str) -> Tuple[str, float]:
         "propinas": 0.0,
         "calendario": 0.0,
         "cursos": 0.0,
+        "servicos_campus": 0.0,
         "general": 0.1,
     }
 
@@ -715,12 +753,20 @@ def _infer_intent_with_confidence(user_message: str) -> Tuple[str, float]:
         intent_scores["candidaturas"] += 1.0
     if any(k in msg_norm for k in ("servicos academicos", "contact", "telefone", "email")):
         intent_scores["contactos"] += 0.9
+    # School acronyms → contactos
+    if any(k in msg_norm for k in ("ecav", "echs", "ecva", "ess")) or re.search(r'\bect\b', msg_norm):
+        intent_scores["contactos"] += 0.9
     if any(k in msg_norm for k in ("propina", "propinas", "isenc")):
         intent_scores["propinas"] += 0.9
     if any(k in msg_norm for k in ("semestre", "aulas", "exame", "epoca", "prazo")):
         intent_scores["calendario"] += 0.9
     if any(k in msg_norm for k in ("curso", "licenciatura", "mestrado", "doutoramento", "engenharia")):
         intent_scores["cursos"] += 0.6
+    # Campus services / location questions
+    if any(k in msg_norm for k in ("cantina", "bar", "residencia", "desporto", "saude", "prados")):
+        intent_scores["servicos_campus"] += 0.8
+    if any(k in msg_norm for k in ("onde fica", "onde e", "localizacao")):
+        intent_scores["servicos_campus"] += 0.5
 
     best_intent = max(intent_scores, key=intent_scores.get)
     confidence = max(0.0, min(1.0, intent_scores[best_intent]))
@@ -828,12 +874,15 @@ def _answer_entry_grade_with_context(last_course: Optional[str]) -> str:
 
 
 def _direct_answer_for_intent(intent: str, resolved_message: str) -> Optional[str]:
+    kb = _load_knowledge_base()
     if intent == "calendario":
-        return _answer_from_knowledge_base(resolved_message, {"calendario_2025_2026": _load_knowledge_base().get("calendario_2025_2026", {})})
+        return _answer_from_knowledge_base(resolved_message, {"calendario_2025_2026": kb.get("calendario_2025_2026", {})})
     if intent == "contactos":
-        return _answer_from_knowledge_base(resolved_message, {"contactos": _load_knowledge_base().get("contactos", {})})
+        return _answer_from_knowledge_base(resolved_message, {"contactos": kb.get("contactos", {})})
     if intent == "propinas":
-        return _answer_from_knowledge_base(resolved_message, {"propinas": _load_knowledge_base().get("propinas", {})})
+        return _answer_from_knowledge_base(resolved_message, {"propinas": kb.get("propinas", {})})
+    if intent == "servicos_campus":
+        return _answer_from_knowledge_base(resolved_message, {"servicos_campus": kb.get("servicos_campus", {})})
     return None
 
 
