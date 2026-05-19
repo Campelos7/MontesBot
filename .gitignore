@@ -422,6 +422,7 @@ FodyWeavers.xsd
 *.msp
 
 venv/
+.venv/
 
 # MontesBot — dados gerados localmente, caches e ferramentas
 chroma_db/
